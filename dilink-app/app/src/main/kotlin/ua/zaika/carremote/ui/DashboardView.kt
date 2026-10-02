@@ -68,11 +68,13 @@ class DashboardView(context: Context) : View(context) {
             "Здоров'я батареї" to (snap.soh?.let { "$it%" } ?: "—"),
             "Темп. батареї" to (snap.battTempC?.let { "$it°C" } ?: "—"),
             "Бортова 12V" to (snap.v12?.let { "%.1f В".format(it) } ?: "—"),
-            "Потужність" to (snap.powerKw?.let { "$it кВт" } ?: "—"),
+            "Потужність" to (snap.powerKw?.let { "%.1f кВт".format(it) } ?: "—"),
             "Замок" to (snap.locked?.let { if (it) "зачинено" else "відчинено" } ?: "—"),
             "Передача" to snap.gearName,
             "Зарядка" to snap.chargingText,
-            "Шини, бар" to snap.tiresBar.joinToString(" ") { it?.let { v -> "%.1f".format(v) } ?: "—" },
+            "Вікна" to windowsText(snap.windowsOpenPct),
+            "Люк" to (snap.sunroofPct?.let { if (it <= 0) "закритий" else "$it%" } ?: "—"),
+            "Шини, бар" to tiresText(snap.tiresBar),
         )
         val cols = 2
         val rows = (tiles.size + cols - 1) / cols
@@ -90,11 +92,24 @@ class DashboardView(context: Context) : View(context) {
             textMuted.textAlign = Paint.Align.LEFT
             textMuted.textSize = dp(14f)
             canvas.drawText(label, x + dp(14f), y + dp(24f), textMuted)
-            val big = if (value.length > 10) dp(20f) else dp(26f)
+            val big = when { value.length > 22 -> dp(15f); value.length > 10 -> dp(19f); else -> dp(26f) }
             textAccent.textAlign = Paint.Align.LEFT
             textAccent.textSize = big
             canvas.drawText(value, x + dp(14f), y + tileH - dp(16f), textAccent)
         }
+    }
+
+    private fun tiresText(bar: List<Float?>): String {
+        if (bar.all { it == null }) return "—"
+        val labels = listOf("ПЛ", "ПП", "ЗЛ", "ЗП")
+        return bar.mapIndexed { i, v -> "${labels[i]} ${v?.let { "%.1f".format(it) } ?: "—"}" }.joinToString(" · ")
+    }
+
+    private fun windowsText(w: List<Int?>): String {
+        if (w.all { it == null }) return "—"
+        val short = listOf("вод", "пас", "ЗЛ", "ЗП")
+        val open = w.mapIndexedNotNull { i, p -> if (p != null && p > 0) "${short[i]} $p%" else null }
+        return if (open.isEmpty()) "закриті" else open.joinToString(", ")
     }
 
     private fun stroke(c: Int, width: Float) = Paint(Paint.ANTI_ALIAS_FLAG).apply {

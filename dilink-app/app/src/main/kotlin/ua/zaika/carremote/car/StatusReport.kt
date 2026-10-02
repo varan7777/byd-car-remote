@@ -1,12 +1,15 @@
 package ua.zaika.carremote.car
 
+import kotlin.math.abs
+
 /** Builds the multi-line /status text. Lines for data this car does not expose are left out. */
 object StatusReport {
 
     fun build(car: Autoservice): String {
         val soc = car.getFloat(Fids.DEV_STATISTIC, Fids.SOC)
         val soh = car.getInt(Fids.DEV_STATISTIC, Fids.SOH)
-        val power = car.getInt(Fids.DEV_ENGINE, Fids.ENGINE_POWER)
+        val power = Power.kw(car.getInt(Fids.DEV_CHARGING, Fids.HV_VOLTAGE), car.getFloat(Fids.DEV_CHARGING, Fids.HV_CURRENT))
+            ?: car.getInt(Fids.DEV_ENGINE, Fids.ENGINE_POWER)?.toFloat()
         val v12 = car.getFloat(Fids.DEV_BODYWORK, Fids.BATTERY_12V)
         val mileage = car.getInt(Fids.DEV_STATISTIC, Fids.LIFETIME_MILEAGE)?.let { it / 10f }
         val gun = car.getInt(Fids.DEV_CHARGING, Fids.GUN_CONNECT_STATE)
@@ -22,8 +25,8 @@ object StatusReport {
 
         return buildString {
             appendLine("🔋 Заряд: ${soc.fmt("%.1f%%")} · батарея ${soh.fmt("%d%%")}")
-            appendLine("🔌 Зарядка: ${charging(gun, bms)}")
-            power?.let { appendLine("⚡ Потужність: $it кВт") }
+            appendLine("🔌 Зарядка: ${charging(gun, bms, power)}")
+            power?.let { appendLine("⚡ Потужність: ${"%.1f".format(it)} кВт") }
             appendLine("🪫 12V: ${v12.fmt("%.1f В")}")
             tempsLine(inside, outside)?.let { appendLine("🌡 $it") }
             acOn?.let { appendLine("❄️ Клімат: ${if (it == 1) "увімкнено" else "вимкнено"}${acTemp?.let { t -> ", $t °C" } ?: ""}") }
@@ -35,7 +38,7 @@ object StatusReport {
         }
     }
 
-    private fun charging(gun: Int?, bms: Int?): String {
+    private fun charging(gun: Int?, bms: Int?, powerKw: Float?): String {
         val plug = when (gun) {
             null -> return "—"
             1 -> return "кабель не підключено"
@@ -43,7 +46,9 @@ object StatusReport {
             else -> "код $gun"
         }
         val state = when (bms) { 1 -> "триває"; 2 -> "завершено"; 13 -> "пауза"; else -> null }
-        return if (state == null) plug else "$plug, $state"
+        val base = if (state == null) plug else "$plug, $state"
+        // Show live power while actually charging.
+        return if (bms == 1 && powerKw != null) "$base · %.1f кВт".format(abs(powerKw)) else base
     }
 
     private fun tempsLine(inside: Int?, outside: Int?): String? = listOfNotNull(

@@ -19,6 +19,7 @@ import ua.zaika.carremote.car.Autoservice
 import ua.zaika.carremote.car.CarSnapshot
 import ua.zaika.carremote.car.Notifier
 import ua.zaika.carremote.car.ShutdownReport
+import ua.zaika.carremote.car.TripTracker
 import ua.zaika.carremote.telegram.TelegramBot
 
 /**
@@ -85,14 +86,18 @@ class CarRemoteService : Service() {
         // Push charging / low-battery alerts to the owner on state changes.
         if (owner != 0L) {
             val notifier = Notifier(car) { router.lowSoc() }
+            val trip = TripTracker()
             scope.launch {
                 var ticks = 0
                 while (isActive) {
                     if (car.isReachable()) {
                         for (msg in notifier.poll()) runCatching { bot.send(owner, msg) }
-                        // Keep the watchdog's parting message fresh, and respawn it if it died.
+                        // Keep the watchdog's parting message fresh (with the current trip),
+                        // and respawn the watchdog if it died.
                         CarSnapshot.read(car)?.let { snap ->
-                            runCatching { watchdog?.writeParked(ShutdownReport.body(snap)) }
+                            trip.baselineIfNeeded(snap)
+                            val body = ShutdownReport.body(snap) + (trip.line(snap)?.let { "\n$it" } ?: "")
+                            runCatching { watchdog?.writeParked(body) }
                         }
                         if (ticks++ % 5 == 0) runCatching { watchdog?.ensureRunning() }
                     }

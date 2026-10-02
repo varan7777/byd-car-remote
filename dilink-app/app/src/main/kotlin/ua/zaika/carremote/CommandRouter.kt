@@ -9,23 +9,27 @@ import ua.zaika.carremote.car.Fids
 import ua.zaika.carremote.car.ShutdownReport
 import ua.zaika.carremote.car.StatusReport
 import ua.zaika.carremote.telegram.Button
+import ua.zaika.carremote.telegram.InlineKeyboard
 import ua.zaika.carremote.telegram.Reply
+import ua.zaika.carremote.telegram.ReplyKeyboard
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
  * Turns a Telegram message or button tap into a reply. Everything here serves only the
- * owner's chat; anyone else is ignored. Control commands are looked up in the [Controls]
- * whitelist and confirmed by reading the car's state back after the write.
+ * owner's chat; anyone else is ignored. The main controls live on a persistent reply
+ * keyboard (sent once, toggled by the grid icon), so a tap arrives as its label text —
+ * [BUTTON_ID] maps that back to an action. Control writes come from the [Controls] whitelist
+ * and are confirmed by reading the car's state back.
  */
 class CommandRouter(
     private val car: Autoservice,
     private val ownerChatId: Long,
     private val prefs: SharedPreferences,
 ) {
-    /** The main button grid, also used for the "car online" greeting. */
-    fun menu(header: String) = Reply(header, MAIN_KEYBOARD)
+    /** Greeting that also (re)shows the persistent keyboard. */
+    fun menu(header: String) = Reply(header, ReplyKeyboard(MAIN_LABELS))
 
     fun handle(chatId: Long, input: String): Reply? {
         if (ownerChatId == 0L) return Reply(
@@ -35,11 +39,14 @@ class CommandRouter(
         // Strangers get silence, not a hint that the bot exists.
         if (chatId != ownerChatId) return null
 
-        val parts = input.trim().split(Regex("\\s+"))
-        return when (parts[0].substringBefore('@').lowercase()) {
+        val text = input.trim()
+        val parts = text.split(Regex("\\s+"))
+        // A reply-keyboard tap arrives as the label; everything else is a typed/slash command.
+        val token = (BUTTON_ID[text] ?: parts[0]).substringBefore('@').lowercase()
+        return when (token) {
             "/start", "/help", "menu" -> menu(HELP)
-            "/status", "status" -> Reply(status(), MAIN_KEYBOARD)
-            "/ping", "ping" -> Reply("pong — авто на зв'язку", MAIN_KEYBOARD)
+            "/status", "status" -> Reply(status())
+            "/ping", "ping" -> Reply("pong — авто на зв'язку")
             "/parked" -> parkedPreview()
             "/probe" -> probe(parts.drop(1))
             "/setlow" -> setLow(parts.getOrNull(1))
@@ -47,18 +54,20 @@ class CommandRouter(
             "temp_up" -> changeTemp(+1)
             "temp_down" -> changeTemp(-1)
 
-            // Unlock asks first; everything else runs straight away.
+            // Unlock asks first, with a one-off inline confirm button.
             "unlock" -> Reply(
                 "Відімкнути авто?",
-                listOf(
-                    listOf(Button("✅ Так, відімкнути", "unlock_do")),
-                    listOf(Button("↩️ Назад", "menu")),
+                InlineKeyboard(
+                    listOf(
+                        listOf(Button("✅ Так, відімкнути", "unlock_do")),
+                        listOf(Button("↩️ Скасувати", "menu")),
+                    ),
                 ),
             )
             "unlock_do" -> run(Controls.UNLOCK)
 
-            else -> Controls.byId[parts[0].lowercase()]?.let { run(it) }
-                ?: Reply("Невідома команда. /help — список.", MAIN_KEYBOARD)
+            else -> Controls.byId[token]?.let { run(it) }
+                ?: Reply("Невідома команда. /help — список.")
         }
     }
 
@@ -73,27 +82,28 @@ class CommandRouter(
     }
 
     private fun run(c: Control): Reply {
-        if (!car.isReachable()) return Reply(noAdb(), MAIN_KEYBOARD)
+        if (!car.isReachable()) return Reply(noAdb())
         car.write(c.dev, c.fid, c.value)
-        val verify = c.verify ?: return Reply("✅ Надіслано: ${c.label}", MAIN_KEYBOARD)
+        val verify = c.verify ?: return Reply("✅ Надіслано: ${c.label}")
         Thread.sleep(SETTLE_MS) // let the command reach the bus before reading it back
         val got = car.getInt(verify.dev, verify.fid)
-        val text = if (got == verify.expected) "✅ ${c.label} — виконано"
-        else "⚠️ ${c.label}: надіслано, підтвердження немає (стан=$got). " +
-            "Можливо, ця команда не підтримується на цьому авто."
-        return Reply(text, MAIN_KEYBOARD)
+        return Reply(
+            if (got == verify.expected) "✅ ${c.label} — виконано"
+            else "⚠️ ${c.label}: надіслано, підтвердження немає (стан=$got). " +
+                "Можливо, ця команда не підтримується на цьому авто.",
+        )
     }
 
     private fun changeTemp(delta: Int): Reply {
-        if (!car.isReachable()) return Reply(noAdb(), MAIN_KEYBOARD)
+        if (!car.isReachable()) return Reply(noAdb())
         val current = car.getInt(Fids.DEV_CLIMATE, Fids.AC_TEMP)
-            ?: return Reply("Не вдалося прочитати температуру клімату.", MAIN_KEYBOARD)
+            ?: return Reply("Не вдалося прочитати температуру клімату.")
         val target = (current + delta).coerceIn(Controls.TEMP_MIN, Controls.TEMP_MAX)
-        if (target == current) return Reply("🌡 Вже $current °C (межа ${Controls.TEMP_MIN}–${Controls.TEMP_MAX}).", MAIN_KEYBOARD)
+        if (target == current) return Reply("🌡 Вже $current °C (межа ${Controls.TEMP_MIN}–${Controls.TEMP_MAX}).")
         car.write(Fids.DEV_CLIMATE, Controls.TEMP_FID, target)
         Thread.sleep(SETTLE_MS)
         val got = car.getInt(Fids.DEV_CLIMATE, Fids.AC_TEMP)
-        return Reply(if (got == target) "🌡 Клімат: $target °C" else "🌡 Надіслано $target °C (стан $got)", MAIN_KEYBOARD)
+        return Reply(if (got == target) "🌡 Клімат: $target °C" else "🌡 Надіслано $target °C (стан $got)")
     }
 
     private fun setLow(arg: String?): Reply {
@@ -128,15 +138,18 @@ class CommandRouter(
         const val KEY_LOW_SOC = "low_soc"
         const val DEFAULT_LOW_SOC = 20
 
-        val MAIN_KEYBOARD = listOf(
-            listOf(Button("📊 Статус", "status"), Button("🏓 Пінг", "ping")),
-            listOf(Button("❄️ Клімат ON", "climate_on"), Button("⭕ Клімат OFF", "climate_off")),
-            listOf(Button("🌡 −", "temp_down"), Button("🌡 +", "temp_up")),
-            listOf(Button("🔒 Замкнути", "lock"), Button("🔓 Відімкнути", "unlock")),
-            listOf(Button("🌬 Обігрів скла", "defrost_on"), Button("⭕ Вимк.", "defrost_off")),
+        // Single source for the persistent keyboard and the label → action lookup.
+        val BUTTONS: List<List<Pair<String, String>>> = listOf(
+            listOf("📊 Статус" to "status", "🏓 Пінг" to "ping"),
+            listOf("❄️ Клімат ON" to "climate_on", "⭕ Клімат OFF" to "climate_off"),
+            listOf("🌡 −" to "temp_down", "🌡 +" to "temp_up"),
+            listOf("🔒 Замкнути" to "lock", "🔓 Відімкнути" to "unlock"),
+            listOf("🌬 Обігрів скла" to "defrost_on", "❄️ Обігрів вимк." to "defrost_off"),
         )
+        val MAIN_LABELS: List<List<String>> = BUTTONS.map { row -> row.map { it.first } }
+        val BUTTON_ID: Map<String, String> = BUTTONS.flatten().associate { it.first to it.second }
 
-        const val HELP = "Car Remote — обери дію кнопкою нижче.\n\n" +
-            "Команди: /status, /ping, /setlow <%>, /probe <dev> <fid>"
+        const val HELP = "Car Remote — кнопки відкриваються квадратиком біля поля вводу.\n\n" +
+            "Команди: /status, /ping, /parked, /setlow <%>, /probe <dev> <fid>"
     }
 }

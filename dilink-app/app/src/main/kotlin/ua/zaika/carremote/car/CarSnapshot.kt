@@ -8,7 +8,7 @@ data class CarSnapshot(
     val v12: Float?,
     val insideC: Int?,
     val outsideC: Int?,
-    val powerKw: Int?,
+    val powerKw: Float?,
     val mileageKm: Float?,
     val tiresBar: List<Float?>,
     val locked: Boolean?,
@@ -19,6 +19,8 @@ data class CarSnapshot(
     val doorsOpen: List<Boolean?>,
     val trunkOpen: Boolean?,
     val hoodOpen: Boolean?,
+    val lifetimeKwh: Float?,
+    val sunroofPct: Int?,
 ) {
     val gearName: String get() = when (gear) { 1 -> "P"; 2 -> "R"; 3 -> "N"; 4 -> "D"; else -> "—" }
 
@@ -44,7 +46,8 @@ data class CarSnapshot(
                 v12 = f(Fids.DEV_BODYWORK, Fids.BATTERY_12V),
                 insideC = i(Fids.DEV_CLIMATE, Fids.INSIDE_TEMP),
                 outsideC = i(Fids.DEV_CLIMATE, Fids.OUTSIDE_TEMP),
-                powerKw = i(Fids.DEV_ENGINE, Fids.ENGINE_POWER),
+                powerKw = Power.kw(i(Fids.DEV_CHARGING, Fids.HV_VOLTAGE), f(Fids.DEV_CHARGING, Fids.HV_CURRENT))
+                    ?: i(Fids.DEV_ENGINE, Fids.ENGINE_POWER)?.toFloat(),
                 mileageKm = i(Fids.DEV_STATISTIC, Fids.LIFETIME_MILEAGE)?.let { it / 10f },
                 tiresBar = Fids.TIRE_PRESSURE.map { i(Fids.DEV_TIRES, it)?.let { kpa -> kpa / 100f } },
                 locked = i(Fids.DEV_DOOR_LOCKS, Fids.LOCK_DRIVER)?.let { it == 2 },
@@ -55,6 +58,8 @@ data class CarSnapshot(
                 doorsOpen = Fids.DOORS.map { i(Fids.DEV_BODYWORK, it)?.let { v -> v == 1 } },
                 trunkOpen = i(Fids.DEV_BODYWORK, Fids.TRUNK)?.let { it == 1 },
                 hoodOpen = i(Fids.DEV_BODYWORK, Fids.HOOD)?.let { it == 1 },
+                lifetimeKwh = f(Fids.DEV_STATISTIC, Fids.LIFETIME_KWH),
+                sunroofPct = i(Fids.DEV_BODYWORK, Fids.SUNROOF),
             )
         }
     }

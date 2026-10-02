@@ -11,11 +11,20 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
-/** One tappable button in the bot. [data] is sent back when it is pressed. */
+/** One inline button. [data] is sent back as a callback when it is pressed. */
 data class Button(val label: String, val data: String)
 
-/** A bot reply: text plus an optional grid of inline buttons. */
-data class Reply(val text: String, val keyboard: List<List<Button>>? = null)
+sealed interface Keyboard
+
+/** Buttons under a message; a tap sends [Button.data] as a callback. For transient prompts. */
+data class InlineKeyboard(val rows: List<List<Button>>) : Keyboard
+
+/** A persistent keyboard above the text box, toggled by the grid icon. A tap sends the
+ *  button's label as a normal message, so it is shown once and not repeated per reply. */
+data class ReplyKeyboard(val rows: List<List<String>>) : Keyboard
+
+/** A bot reply: text plus an optional keyboard. */
+data class Reply(val text: String, val keyboard: Keyboard? = null)
 
 /**
  * Minimal Telegram Bot API client using long polling. The car only makes outgoing HTTPS
@@ -98,11 +107,19 @@ class TelegramBot(
         }
     }
 
-    private fun keyboardJson(rows: List<List<Button>>): String {
-        val body = rows.joinToString(",") { row ->
-            "[" + row.joinToString(",") { """{"text":${quote(it.label)},"callback_data":${quote(it.data)}}""" } + "]"
+    private fun keyboardJson(keyboard: Keyboard): String = when (keyboard) {
+        is InlineKeyboard -> {
+            val body = keyboard.rows.joinToString(",") { row ->
+                "[" + row.joinToString(",") { """{"text":${quote(it.label)},"callback_data":${quote(it.data)}}""" } + "]"
+            }
+            """{"inline_keyboard":[$body]}"""
         }
-        return """{"inline_keyboard":[$body]}"""
+        is ReplyKeyboard -> {
+            val body = keyboard.rows.joinToString(",") { row ->
+                "[" + row.joinToString(",") { """{"text":${quote(it)}}""" } + "]"
+            }
+            """{"keyboard":[$body],"resize_keyboard":true,"is_persistent":true}"""
+        }
     }
 
     private fun quote(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""

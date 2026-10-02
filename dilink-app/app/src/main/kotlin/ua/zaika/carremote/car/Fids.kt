@@ -25,12 +25,15 @@ object Fids {
     const val SOC = 1246777400 // float, %
     const val SOH = 1145045032 // int, %
     const val LIFETIME_MILEAGE = 1246765072 // int, km × 10
+    const val LIFETIME_KWH = 1032871984 // float, kWh total throughput (for trip energy)
     const val BATTERY_TEMP_MAX = 1148190752 // int, °C + 40
     const val BATTERY_TEMP_MIN = 1148190736 // int, °C + 40
 
     // Charging, dev 1009
     const val GUN_CONNECT_STATE = 876609586 // int: 1 none, 2 AC, 3 DC, 4 AC+DC, 5 V2L
     const val CHARGING_BMS_STATE = 876609560 // int: 1 charging, 2 finished, 13 paused
+    const val HV_VOLTAGE = 1145045000 // int, V (high-voltage pack). Verified on Song Plus.
+    const val HV_CURRENT = 1145045016 // float, A (− = into battery). Verified on Song Plus.
 
     // Engine, dev 1012
     const val ENGINE_POWER = 339738656 // int, kW: + drawing, − regen or charging
@@ -45,6 +48,8 @@ object Fids {
     const val BATTERY_12V = 1128267816 // float, V
     const val TRUNK = 1074790416 // int: 1 open
     const val HOOD = 692060188 // int: 1 open
+
+    const val SUNROOF = 1101004808 // dev 1001, int %: 0 closed .. 100 open
 
     // Front left, front right, rear left, rear right.
     val DOORS = listOf(692060168, 692060170, 692060172, 692060174) // dev 1001, int: 1 open
