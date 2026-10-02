@@ -1,0 +1,49 @@
+package ua.zaika.carremote.car
+
+/**
+ * Known autoservice read addresses, from BYDMate's on-device research on a Leopard 3 (DiLink 5).
+ * Verified on Song Plus 2025 (DiLink 5.0): SOC, SOH, LIFETIME_MILEAGE, BATTERY_12V,
+ * GUN_CONNECT_STATE, CHARGING_BMS_STATE, ENGINE_POWER. The rest are unverified on Song Plus —
+ * a value this car does not expose simply reads as "no data".
+ */
+object Fids {
+    const val DEV_CLIMATE = 1000
+    const val DEV_BODYWORK = 1001
+    const val DEV_CHARGING = 1009
+    const val DEV_ENGINE = 1012
+    const val DEV_STATISTIC = 1014
+    const val DEV_TIRES = 1016
+    const val DEV_DOOR_LOCKS = 1032
+
+    // Statistic, dev 1014
+    const val SOC = 1246777400 // float, %
+    const val SOH = 1145045032 // int, %
+    const val LIFETIME_MILEAGE = 1246765072 // int, km × 10
+    const val BATTERY_TEMP_MAX = 1148190752 // int, °C + 40
+    const val BATTERY_TEMP_MIN = 1148190736 // int, °C + 40
+
+    // Charging, dev 1009
+    const val GUN_CONNECT_STATE = 876609586 // int: 1 none, 2 AC, 3 DC, 4 AC+DC, 5 V2L
+    const val CHARGING_BMS_STATE = 876609560 // int: 1 charging, 2 finished, 13 paused
+
+    // Engine, dev 1012
+    const val ENGINE_POWER = 339738656 // int, kW: + drawing, − regen or charging
+
+    // Climate, dev 1000
+    const val AC_STATUS = 1077936144 // int: 1 on
+    const val INSIDE_TEMP = 1031798832 // int, °C
+    const val OUTSIDE_TEMP = 1077936184 // int, °C
+
+    // Bodywork, dev 1001
+    const val BATTERY_12V = 1128267816 // float, V
+    const val TRUNK = 1074790416 // int: 1 open
+    const val HOOD = 692060188 // int: 1 open
+
+    // Front left, front right, rear left, rear right.
+    val DOORS = listOf(692060168, 692060170, 692060172, 692060174) // dev 1001, int: 1 open
+    val WINDOWS = listOf(947912728, 1267728400, 947912736, 947912752) // dev 1001, int, % open
+    val TIRE_PRESSURE = listOf(-1728052956, -1728052952, -1728052948, -1728052944) // dev 1016, int, kPa
+
+    // Door locks, dev 1032
+    const val LOCK_DRIVER = 1081081864 // int: 1 unlocked, 2 locked
+}

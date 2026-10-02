@@ -1,0 +1,16 @@
+# Secrets
+**/secrets.properties
+
+# Gradle / Android
+.gradle/
+**/build/
+local.properties
+*.apk
+.idea/
+*.iml
+
+# macOS
+.DS_Store
+
+# Third-party checkouts kept for reading only
+reference/
