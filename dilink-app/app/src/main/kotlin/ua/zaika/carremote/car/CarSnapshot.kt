@@ -15,6 +15,10 @@ data class CarSnapshot(
     val gear: Int?,
     val gun: Int?,
     val bms: Int?,
+    val windowsOpenPct: List<Int?>,
+    val doorsOpen: List<Boolean?>,
+    val trunkOpen: Boolean?,
+    val hoodOpen: Boolean?,
 ) {
     val gearName: String get() = when (gear) { 1 -> "P"; 2 -> "R"; 3 -> "N"; 4 -> "D"; else -> "—" }
 
@@ -47,6 +51,10 @@ data class CarSnapshot(
                 gear = i(Fids.DEV_GEAR, Fids.GEAR),
                 gun = i(Fids.DEV_CHARGING, Fids.GUN_CONNECT_STATE),
                 bms = i(Fids.DEV_CHARGING, Fids.CHARGING_BMS_STATE),
+                windowsOpenPct = Fids.WINDOWS.map { i(Fids.DEV_BODYWORK, it) },
+                doorsOpen = Fids.DOORS.map { i(Fids.DEV_BODYWORK, it)?.let { v -> v == 1 } },
+                trunkOpen = i(Fids.DEV_BODYWORK, Fids.TRUNK)?.let { it == 1 },
+                hoodOpen = i(Fids.DEV_BODYWORK, Fids.HOOD)?.let { it == 1 },
             )
         }
     }

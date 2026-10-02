@@ -23,6 +23,18 @@
             android:name=".CarRemoteService"
             android:exported="false" />
 
+        <!-- Not for reading notifications: an enabled listener is auto-restarted by the
+             system after the app is killed, which is our only way back after quickboot. -->
+        <service
+            android:name=".KeepAliveService"
+            android:label="Car Remote"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true">

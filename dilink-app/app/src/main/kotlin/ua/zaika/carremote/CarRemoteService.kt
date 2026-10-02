@@ -4,8 +4,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.IBinder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,8 +18,13 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import ua.zaika.carremote.adb.AdbShell
 import ua.zaika.carremote.car.Autoservice
+import ua.zaika.carremote.car.CarSnapshot
 import ua.zaika.carremote.car.Notifier
+import ua.zaika.carremote.car.ShutdownReport
 import ua.zaika.carremote.telegram.TelegramBot
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Keeps the ADB and Telegram links alive while the head unit is on.
@@ -30,6 +37,14 @@ class CarRemoteService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var adb: AdbShell
 
+    // Held so the ignition-off receiver can read and send the parting snapshot.
+    private var car: Autoservice? = null
+    private var bot: TelegramBot? = null
+    private var owner = 0L
+    @Volatile private var lastSnapshot: CarSnapshot? = null
+    @Volatile private var lastShutdownMs = 0L
+    private var powerReceiver: BroadcastReceiver? = null
+
     override fun onCreate() {
         super.onCreate()
         getSystemService(NotificationManager::class.java).createNotificationChannel(
@@ -38,17 +53,29 @@ class CarRemoteService : Service() {
         startForeground(NOTIFICATION_ID, notification("Запуск…"))
 
         adb = AdbShell(this)
-        val car = Autoservice(adb)
+        val car = Autoservice(adb).also { this.car = it }
 
         val token = BuildConfig.TELEGRAM_BOT_TOKEN
-        val owner = BuildConfig.OWNER_CHAT_ID
+        val owner = BuildConfig.OWNER_CHAT_ID.also { this.owner = it }
         if (token.isBlank()) {
             updateStatus("Telegram: немає TELEGRAM_BOT_TOKEN у secrets.properties")
             return
         }
         val prefs = getSharedPreferences("carremote", Context.MODE_PRIVATE)
         val router = CommandRouter(car, owner, prefs)
-        val bot = TelegramBot(token, router::handle)
+        val bot = TelegramBot(token, router::handle).also { this.bot = it }
+
+        // Fire a parting snapshot the moment the car is switched off, while the head unit is
+        // still briefly awake — the only way to show the final state once it sleeps.
+        powerReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) = sendShutdownReport()
+        }.also {
+            registerReceiver(it, IntentFilter().apply {
+                addAction("byd.intent.action.ACC_OFF")
+                addAction("android.intent.action.QUICKBOOT_POWEROFF")
+                addAction(Intent.ACTION_SHUTDOWN)
+            })
+        }
         // skipBacklog (inside run) still drops stale commands; the greeting is sent by the
         // reachability loop instead, so it also fires when the car wakes from sleep.
         scope.launch { bot.run(::updateStatus) {} }
@@ -80,6 +107,8 @@ class CarRemoteService : Service() {
                 while (isActive) {
                     if (car.isReachable()) {
                         for (msg in notifier.poll()) runCatching { bot.send(owner, msg) }
+                        // Keep a fresh snapshot ready so the ignition-off report is one quick send.
+                        CarSnapshot.read(car)?.let { lastSnapshot = it }
                     }
                     delay(30_000)
                 }
@@ -87,9 +116,25 @@ class CarRemoteService : Service() {
         }
     }
 
+    /** Sends the "car switched off" snapshot, debounced against repeated power broadcasts. */
+    private fun sendShutdownReport() {
+        val b = bot ?: return
+        if (owner == 0L) return
+        val now = System.currentTimeMillis()
+        if (now - lastShutdownMs < 60_000) return
+        lastShutdownMs = now
+        scope.launch {
+            // Prefer the cached snapshot — one HTTP call is likelier to finish before the kill.
+            val snap = lastSnapshot ?: car?.let { CarSnapshot.read(it) } ?: return@launch
+            val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+            runCatching { b.send(owner, ShutdownReport.build(snap, time)) }
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_STICKY
 
     override fun onDestroy() {
+        powerReceiver?.let { runCatching { unregisterReceiver(it) } }
         scope.cancel()
         adb.close()
         telegramStatus = "Сервіс зупинено"

@@ -2,12 +2,17 @@ package ua.zaika.carremote
 
 import android.content.SharedPreferences
 import ua.zaika.carremote.car.Autoservice
+import ua.zaika.carremote.car.CarSnapshot
 import ua.zaika.carremote.car.Control
 import ua.zaika.carremote.car.Controls
 import ua.zaika.carremote.car.Fids
+import ua.zaika.carremote.car.ShutdownReport
 import ua.zaika.carremote.car.StatusReport
 import ua.zaika.carremote.telegram.Button
 import ua.zaika.carremote.telegram.Reply
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Turns a Telegram message or button tap into a reply. Everything here serves only the
@@ -35,6 +40,7 @@ class CommandRouter(
             "/start", "/help", "menu" -> menu(HELP)
             "/status", "status" -> Reply(status(), MAIN_KEYBOARD)
             "/ping", "ping" -> Reply("pong — авто на зв'язку", MAIN_KEYBOARD)
+            "/parked" -> parkedPreview()
             "/probe" -> probe(parts.drop(1))
             "/setlow" -> setLow(parts.getOrNull(1))
 
@@ -57,6 +63,14 @@ class CommandRouter(
     }
 
     private fun status(): String = if (car.isReachable()) StatusReport.build(car) else noAdb()
+
+    /** Preview of the message that is sent automatically when the car is switched off. */
+    private fun parkedPreview(): Reply {
+        if (!car.isReachable()) return Reply(noAdb())
+        val snap = CarSnapshot.read(car) ?: return Reply("Немає даних з авто.")
+        val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+        return Reply(ShutdownReport.build(snap, time))
+    }
 
     private fun run(c: Control): Reply {
         if (!car.isReachable()) return Reply(noAdb(), MAIN_KEYBOARD)
