@@ -38,6 +38,18 @@ object Fids {
     // Engine, dev 1012
     const val ENGINE_POWER = 339738656 // int, kW: + drawing, − regen or charging
 
+    // Seats, dev 1000: switch (1=on, 2=off), level (1..5), status read (0=off, 1..5).
+    const val SEAT_HEAT_DRIVER_SWITCH = 1276248084
+    const val SEAT_HEAT_DRIVER_LEVEL = 1276252180
+    const val SEAT_HEAT_DRIVER_READ = 702545948
+    const val SEAT_HEAT_PASS_SWITCH = 1276248092
+    const val SEAT_HEAT_PASS_LEVEL = 1276252188
+    const val SEAT_HEAT_PASS_READ = 711983132
+
+    // Lights, dev 1004. Hazard flash for "find car": write 1=on, 0=off (no readback).
+    const val DEV_LIGHTS = 1004
+    const val HAZARD = 871366669
+
     // Climate, dev 1000. Verified on Song Plus 2025.
     const val AC_STATUS = 1077936144 // int: 1 on
     const val AC_TEMP = 1077936168 // int, °C set point

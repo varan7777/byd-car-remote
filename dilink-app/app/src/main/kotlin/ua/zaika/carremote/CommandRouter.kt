@@ -54,6 +54,14 @@ class CommandRouter(
             "temp_up" -> changeTemp(+1)
             "temp_down" -> changeTemp(-1)
 
+            "seat_driver" -> toggleSeat(
+                "водія", Fids.SEAT_HEAT_DRIVER_SWITCH, Fids.SEAT_HEAT_DRIVER_LEVEL, Fids.SEAT_HEAT_DRIVER_READ,
+            )
+            "seat_pass" -> toggleSeat(
+                "пасажира", Fids.SEAT_HEAT_PASS_SWITCH, Fids.SEAT_HEAT_PASS_LEVEL, Fids.SEAT_HEAT_PASS_READ,
+            )
+            "findcar" -> findCar()
+
             // Unlock asks first, with a one-off inline confirm button.
             "unlock" -> Reply(
                 "Відімкнути авто?",
@@ -92,6 +100,35 @@ class CommandRouter(
             else "⚠️ ${c.label}: надіслано, підтвердження немає (стан=$got). " +
                 "Можливо, ця команда не підтримується на цьому авто.",
         )
+    }
+
+    /** Seat heating is two writes to turn on (switch + level); its status fid confirms it. */
+    private fun toggleSeat(who: String, switchFid: Int, levelFid: Int, readFid: Int): Reply {
+        if (!car.isReachable()) return Reply(noAdb())
+        val level = car.getInt(Fids.DEV_CLIMATE, readFid)
+            ?: return Reply("Не вдалося прочитати стан сидіння $who.")
+        if (level > 0) {
+            car.write(Fids.DEV_CLIMATE, switchFid, 2) // off
+            Thread.sleep(SETTLE_MS)
+            return Reply("🪑 Підігрів $who: вимкнено")
+        }
+        car.write(Fids.DEV_CLIMATE, switchFid, 1) // on
+        car.write(Fids.DEV_CLIMATE, levelFid, SEAT_ON_LEVEL)
+        Thread.sleep(SETTLE_MS)
+        val now = car.getInt(Fids.DEV_CLIMATE, readFid)
+        return Reply(
+            if (now != null && now > 0) "🔥 Підігрів $who: увімкнено (рівень $now)"
+            else "⚠️ Підігрів $who: надіслано, підтвердження немає (стан=$now).",
+        )
+    }
+
+    /** "Find car": flash the hazards for a few seconds. */
+    private fun findCar(): Reply {
+        if (!car.isReachable()) return Reply(noAdb())
+        car.write(Fids.DEV_LIGHTS, Fids.HAZARD, 1)
+        Thread.sleep(3000)
+        car.write(Fids.DEV_LIGHTS, Fids.HAZARD, 0)
+        return Reply("📍 Поблимав аварійкою")
     }
 
     private fun changeTemp(delta: Int): Reply {
@@ -135,6 +172,7 @@ class CommandRouter(
 
     private companion object {
         const val SETTLE_MS = 1500L
+        const val SEAT_ON_LEVEL = 3 // mid heat when turning a seat on
         const val KEY_LOW_SOC = "low_soc"
         const val DEFAULT_LOW_SOC = 20
 
@@ -145,6 +183,8 @@ class CommandRouter(
             listOf("🌡 −" to "temp_down", "🌡 +" to "temp_up"),
             listOf("🔒 Замкнути" to "lock", "🔓 Відімкнути" to "unlock"),
             listOf("🌬 Обігрів скла" to "defrost_on", "❄️ Обігрів вимк." to "defrost_off"),
+            listOf("🔥 Сид. водія" to "seat_driver", "🔥 Сид. пасажира" to "seat_pass"),
+            listOf("📍 Знайти авто" to "findcar"),
         )
         val MAIN_LABELS: List<List<String>> = BUTTONS.map { row -> row.map { it.first } }
         val BUTTON_ID: Map<String, String> = BUTTONS.flatten().associate { it.first to it.second }
