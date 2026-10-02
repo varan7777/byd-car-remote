@@ -10,10 +10,16 @@ object Fids {
     const val DEV_CLIMATE = 1000
     const val DEV_BODYWORK = 1001
     const val DEV_CHARGING = 1009
+    const val DEV_GEAR = 1011
     const val DEV_ENGINE = 1012
+    const val DEV_DRIVE = 1013
     const val DEV_STATISTIC = 1014
     const val DEV_TIRES = 1016
     const val DEV_DOOR_LOCKS = 1032
+
+    // Gear + drive. Verified on Song Plus 2025.
+    const val GEAR = 555745336 // int: 1 P, 2 R, 3 N, 4 D
+    const val SPEED = -1807745016 // float, km/h
 
     // Statistic, dev 1014
     const val SOC = 1246777400 // float, %
@@ -29,8 +35,9 @@ object Fids {
     // Engine, dev 1012
     const val ENGINE_POWER = 339738656 // int, kW: + drawing, − regen or charging
 
-    // Climate, dev 1000
+    // Climate, dev 1000. Verified on Song Plus 2025.
     const val AC_STATUS = 1077936144 // int: 1 on
+    const val AC_TEMP = 1077936168 // int, °C set point
     const val INSIDE_TEMP = 1031798832 // int, °C
     const val OUTSIDE_TEMP = 1077936184 // int, °C
 

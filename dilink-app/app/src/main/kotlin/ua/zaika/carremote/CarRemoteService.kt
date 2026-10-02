@@ -16,6 +16,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import ua.zaika.carremote.adb.AdbShell
 import ua.zaika.carremote.car.Autoservice
+import ua.zaika.carremote.car.Notifier
 import ua.zaika.carremote.telegram.TelegramBot
 
 /**
@@ -54,10 +55,25 @@ class CarRemoteService : Service() {
             updateStatus("Telegram: немає TELEGRAM_BOT_TOKEN у secrets.properties")
             return
         }
-        val bot = TelegramBot(token, CommandRouter(car, owner)::handle)
+        val prefs = getSharedPreferences("carremote", Context.MODE_PRIVATE)
+        val router = CommandRouter(car, owner, prefs)
+        val bot = TelegramBot(token, router::handle)
         scope.launch {
             bot.run(::updateStatus) {
-                if (owner != 0L) runCatching { bot.send(owner, "🚗 Авто онлайн. /status — стан") }
+                if (owner != 0L) runCatching { bot.send(owner, router.menu("🚗 Авто онлайн")) }
+            }
+        }
+
+        // Push charging / low-battery alerts to the owner on state changes.
+        if (owner != 0L) {
+            val notifier = Notifier(car) { router.lowSoc() }
+            scope.launch {
+                while (isActive) {
+                    if (car.isReachable()) {
+                        for (msg in notifier.poll()) runCatching { bot.send(owner, msg) }
+                    }
+                    delay(30_000)
+                }
             }
         }
     }

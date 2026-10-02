@@ -3,11 +3,13 @@ package ua.zaika.carremote.car
 import ua.zaika.carremote.adb.AdbShell
 
 /**
- * Read-only client for BYD's `autoservice` system Binder, reached with `service call`.
+ * Client for BYD's `autoservice` system Binder, reached with `service call`.
  *
  * Every value lives at a (device, feature id) address. Transaction 5 reads an int,
- * 7 reads a float. Write transactions are deliberately not exposed: control commands
- * come later, behind an explicit whitelist, once reads are confirmed on this car.
+ * 7 reads a float, 6 writes an int. [write] is only ever called with a tuple from the
+ * [Controls] whitelist, never a value straight from a message, and every control is
+ * confirmed afterwards by reading its state back — a write this car ignores shows up
+ * as a mismatch instead of a false success.
  */
 class Autoservice(private val adb: AdbShell) {
 
@@ -15,6 +17,11 @@ class Autoservice(private val adb: AdbShell) {
     fun isReachable(): Boolean = adb.exec("echo ok")?.trim() == "ok"
 
     val lastError: String? get() = adb.lastError
+
+    /** Sends a setInt. Returns true if the command reached adbd; the caller confirms the
+     *  physical effect with a readback. */
+    fun write(dev: Int, fid: Int, value: Int): Boolean =
+        adb.exec("service call autoservice $TX_SET_INT i32 $dev i32 $fid i32 $value") != null
 
     fun getInt(dev: Int, fid: Int): Int? = readRaw(TX_GET_INT, dev, fid)?.let(::decodeInt)
 
@@ -31,6 +38,7 @@ class Autoservice(private val adb: AdbShell) {
 
     companion object {
         const val TX_GET_INT = 5
+        const val TX_SET_INT = 6
         const val TX_GET_FLOAT = 7
 
         // Return words that mean "no data" rather than a reading.
