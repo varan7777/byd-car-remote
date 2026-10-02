@@ -1,5 +1,6 @@
 package ua.zaika.carremote.telegram
 
+import android.content.SharedPreferences
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -33,6 +34,7 @@ data class Reply(val text: String, val keyboard: Keyboard? = null)
  */
 class TelegramBot(
     private val token: String,
+    private val prefs: SharedPreferences,
     private val handle: (chatId: Long, input: String) -> Reply?,
 ) {
     private var offset = 0L
@@ -42,7 +44,12 @@ class TelegramBot(
         while (currentCoroutineContext().isActive) {
             try {
                 if (!connected) {
-                    skipBacklog()
+                    // Resume from the saved offset so taps made between the ~40 s parked restarts
+                    // are still processed; only drop the backlog on a first run or a long outage
+                    // (e.g. overnight), so stale commands never fire late.
+                    offset = prefs.getLong(KEY_OFFSET, 0)
+                    val gap = System.currentTimeMillis() - prefs.getLong(KEY_LAST_POLL, 0)
+                    if (offset == 0L || gap > STALE_GAP_MS) skipBacklog()
                     connected = true
                     onStatus("Telegram: онлайн")
                     onConnected()
@@ -91,6 +98,7 @@ class TelegramBot(
             Log.i(TAG, "message from $chatId: $text")
             if (text.isNotBlank()) handle(chatId, text)?.let { send(chatId, it) }
         }
+        prefs.edit().putLong(KEY_OFFSET, offset).putLong(KEY_LAST_POLL, System.currentTimeMillis()).apply()
     }
 
     private fun onCallback(cb: JSONObject) {
@@ -152,5 +160,8 @@ class TelegramBot(
         const val POLL_SECONDS = 25
         const val RETRY_MS = 8_000L
         const val ALLOWED = """["message","callback_query"]"""
+        const val KEY_OFFSET = "tg_offset"
+        const val KEY_LAST_POLL = "tg_last_poll"
+        const val STALE_GAP_MS = 300_000L // resume within 5 min of the last poll; else drop backlog
     }
 }

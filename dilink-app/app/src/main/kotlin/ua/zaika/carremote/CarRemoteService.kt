@@ -54,7 +54,7 @@ class CarRemoteService : Service() {
         }
         val prefs = getSharedPreferences("carremote", Context.MODE_PRIVATE)
         val router = CommandRouter(car, owner, prefs)
-        val bot = TelegramBot(token, router::handle)
+        val bot = TelegramBot(token, prefs, router::handle)
 
         // Shell-uid watchdog: survives ignition-off, restarts us on wake, and sends the
         // "car switched off" message itself (the app is killed too fast to do it). It needs
