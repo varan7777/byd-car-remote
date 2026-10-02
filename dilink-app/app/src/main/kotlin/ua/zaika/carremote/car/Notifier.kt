@@ -23,6 +23,10 @@ class Notifier(private val car: Autoservice, private val lowSocPct: () -> Int) {
     fun poll(): List<String> {
         val msgs = mutableListOf<String>()
         val soc = car.getFloat(Fids.DEV_STATISTIC, Fids.SOC)
+        val power = Power.kw(
+            car.getInt(Fids.DEV_CHARGING, Fids.HV_VOLTAGE),
+            car.getFloat(Fids.DEV_CHARGING, Fids.HV_CURRENT),
+        )?.let { abs(it) }
 
         val newGun = car.getInt(Fids.DEV_CHARGING, Fids.GUN_CONNECT_STATE)
         if (newGun != null && gun != null && newGun != gun) {
@@ -35,7 +39,12 @@ class Notifier(private val car: Autoservice, private val lowSocPct: () -> Int) {
         if (newBms != null && newBms != bms) {
             val pct = soc?.let { " (заряд ${it.toInt()}%)" } ?: ""
             when (newBms) {
-                1 -> if (bms != 1) msgs += "⚡ Зарядка почалась$pct"
+                1 -> if (bms != 1) {
+                    // Immediate rough ETA from power; the 4-min heartbeat refines it from the real rate.
+                    val kw = power?.let { " · %.1f кВт".format(it) } ?: ""
+                    val eta = Power.etaByPower(soc, power)?.let { "\n⏱ $it до повного (орієнтовно)" } ?: ""
+                    msgs += "⚡ Зарядка почалась$pct$kw$eta"
+                }
                 2 -> if (bms == 1 || bms == 13) msgs += "✅ Зарядка завершена$pct"
                 13 -> if (bms == 1) msgs += "⏸ Зарядка на паузі$pct"
             }
@@ -46,9 +55,10 @@ class Notifier(private val car: Autoservice, private val lowSocPct: () -> Int) {
         if (bms == 1) {
             val now = System.currentTimeMillis()
             if (chargeStartSoc == null) {
-                chargeStartSoc = soc; chargeStartMs = now; lastProgressMs = now
+                // First heartbeat ~4 min in (enough SOC rise for a real rate), then every 15 min.
+                chargeStartSoc = soc; chargeStartMs = now; lastProgressMs = now - (PROGRESS_MS - FIRST_PROGRESS_MS)
             } else if (now - lastProgressMs >= PROGRESS_MS) {
-                chargingProgress(soc)?.let { msgs += it }
+                chargingProgress(soc, power)?.let { msgs += it }
                 lastProgressMs = now
             }
         } else {
@@ -69,12 +79,8 @@ class Notifier(private val car: Autoservice, private val lowSocPct: () -> Int) {
         return msgs
     }
 
-    private fun chargingProgress(soc: Float?): String? {
+    private fun chargingProgress(soc: Float?, power: Float?): String? {
         if (soc == null) return null
-        val power = Power.kw(
-            car.getInt(Fids.DEV_CHARGING, Fids.HV_VOLTAGE),
-            car.getFloat(Fids.DEV_CHARGING, Fids.HV_CURRENT),
-        )?.let { abs(it) }
         return buildString {
             append("⚡ Заряджається: ${soc.toInt()}%")
             if (power != null) append(" · %.1f кВт".format(power))
@@ -95,5 +101,6 @@ class Notifier(private val car: Autoservice, private val lowSocPct: () -> Int) {
 
     private companion object {
         const val PROGRESS_MS = 15 * 60 * 1000L // charging heartbeat every 15 min
+        const val FIRST_PROGRESS_MS = 4 * 60 * 1000L // but the first one ~4 min after start
     }
 }
