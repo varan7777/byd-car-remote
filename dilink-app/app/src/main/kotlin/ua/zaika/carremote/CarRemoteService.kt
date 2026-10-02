@@ -39,15 +39,6 @@ class CarRemoteService : Service() {
 
         adb = AdbShell(this)
         val car = Autoservice(adb)
-        // Connect right away, so the "Allow USB debugging?" prompt shows up while
-        // someone is sitting in the car — not on the first remote command.
-        scope.launch {
-            while (isActive) {
-                val ok = car.isReachable()
-                adbStatus = if (ok) "ADB: підключено" else "ADB: немає (${adb.lastError}). Дозволь ключ на екрані"
-                delay(if (ok) 60_000 else 10_000)
-            }
-        }
 
         val token = BuildConfig.TELEGRAM_BOT_TOKEN
         val owner = BuildConfig.OWNER_CHAT_ID
@@ -58,9 +49,27 @@ class CarRemoteService : Service() {
         val prefs = getSharedPreferences("carremote", Context.MODE_PRIVATE)
         val router = CommandRouter(car, owner, prefs)
         val bot = TelegramBot(token, router::handle)
+        // skipBacklog (inside run) still drops stale commands; the greeting is sent by the
+        // reachability loop instead, so it also fires when the car wakes from sleep.
+        scope.launch { bot.run(::updateStatus) {} }
+
+        // DiLink does not deliver boot broadcasts to us and freezes/kills the app on ignition
+        // off. So instead of relying on autostart, we watch the car link: every time it comes
+        // back (cold start OR wake from sleep) we re-greet the owner. Connecting right away
+        // also makes the "Allow USB debugging?" prompt appear while someone is in the car.
         scope.launch {
-            bot.run(::updateStatus) {
-                if (owner != 0L) runCatching { bot.send(owner, router.menu("🚗 Авто онлайн")) }
+            var wasReachable = false
+            while (isActive) {
+                val ok = car.isReachable()
+                adbStatus = if (ok) "ADB: підключено" else "ADB: немає (${adb.lastError}). Дозволь ключ на екрані"
+                if (ok && !wasReachable) {
+                    val greeted = owner == 0L ||
+                        runCatching { bot.send(owner, router.menu("🚗 Авто онлайн")) }.isSuccess
+                    if (greeted) wasReachable = true // don't greet again until the next sleep
+                } else if (!ok) {
+                    wasReachable = false
+                }
+                delay(if (ok) 60_000 else 10_000)
             }
         }
 
