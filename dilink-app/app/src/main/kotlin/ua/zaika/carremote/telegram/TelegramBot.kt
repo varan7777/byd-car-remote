@@ -147,8 +147,10 @@ class TelegramBot(
 
     private companion object {
         const val TAG = "TelegramBot"
-        const val POLL_SECONDS = 50
-        const val RETRY_MS = 10_000L
+        // Short enough that a full long-poll completes between DiLink's ~40 s quickboot kills
+        // while parked, so the bot still answers (with up to ~poll-length latency) in keep-awake.
+        const val POLL_SECONDS = 25
+        const val RETRY_MS = 8_000L
         const val ALLOWED = """["message","callback_query"]"""
     }
 }

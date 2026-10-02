@@ -190,7 +190,7 @@ class CommandRouter(
             listOf("🌬 Обігрів скла" to "defrost_on", "❄️ Обігрів вимк." to "defrost_off"),
             listOf("🔥 Сид. водія" to "seat_driver", "🔥 Сид. пасажира" to "seat_pass"),
             listOf("📍 Знайти авто" to "findcar"),
-            listOf("🅿️ Знімок стоянки" to "parked", "🪫 Поріг заряду" to "setlow_menu"),
+            listOf("🅿️ Стан на стоянці" to "parked", "🪫 Поріг заряду" to "setlow_menu"),
         )
         val MAIN_LABELS: List<List<String>> = BUTTONS.map { row -> row.map { it.first } }
         val BUTTON_ID: Map<String, String> = BUTTONS.flatten().associate { it.first to it.second }

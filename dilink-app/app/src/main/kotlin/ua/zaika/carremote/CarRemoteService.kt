@@ -82,7 +82,9 @@ class CarRemoteService : Service() {
                 } else if (!ok) {
                     wasReachable = false
                 }
-                delay(if (ok) 60_000 else 10_000)
+                // Retry the greeting soon if it has not gone out yet (Telegram may be a few
+                // seconds behind the ADB link right after a wake); idle slowly once greeted.
+                delay(if (!ok) 10_000 else if (!wasReachable) 4_000 else 60_000)
             }
         }
 
