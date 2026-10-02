@@ -21,7 +21,7 @@ object StatusReport {
         val tires = Fids.TIRE_PRESSURE.map { car.getInt(Fids.DEV_TIRES, it) }
 
         return buildString {
-            appendLine("🔋 Заряд: ${soc.fmt("%.0f%%")} · батарея ${soh.fmt("%d%%")}")
+            appendLine("🔋 Заряд: ${soc.fmt("%.1f%%")} · батарея ${soh.fmt("%d%%")}")
             appendLine("🔌 Зарядка: ${charging(gun, bms)}")
             power?.let { appendLine("⚡ Потужність: $it кВт") }
             appendLine("🪫 12V: ${v12.fmt("%.1f В")}")

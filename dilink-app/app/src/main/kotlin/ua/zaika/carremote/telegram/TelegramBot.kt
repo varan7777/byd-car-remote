@@ -1,5 +1,6 @@
 package ua.zaika.carremote.telegram
 
+import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -57,12 +58,16 @@ class TelegramBot(
     }
 
     private fun skipBacklog() {
-        val pending = call("getUpdates", "offset" to -1, "timeout" to 0).getJSONArray("result")
+        val pending = call("getUpdates", "offset" to -1, "timeout" to 0, "allowed_updates" to ALLOWED)
+            .getJSONArray("result")
         if (pending.length() > 0) offset = pending.getJSONObject(pending.length() - 1).getLong("update_id") + 1
     }
 
     private fun poll() {
-        val updates = call("getUpdates", "offset" to offset, "timeout" to POLL_SECONDS).getJSONArray("result")
+        // allowed_updates is sticky on Telegram's side; a bot once polled without "callback_query"
+        // keeps dropping button taps until a later call re-declares it — so we send it every time.
+        val updates = call("getUpdates", "offset" to offset, "timeout" to POLL_SECONDS, "allowed_updates" to ALLOWED)
+            .getJSONArray("result")
         for (i in 0 until updates.length()) {
             val update = updates.getJSONObject(i)
             offset = update.getLong("update_id") + 1
@@ -74,6 +79,7 @@ class TelegramBot(
             val message = update.optJSONObject("message") ?: continue
             val chatId = message.optJSONObject("chat")?.optLong("id") ?: continue
             val text = message.optString("text")
+            Log.i(TAG, "message from $chatId: $text")
             if (text.isNotBlank()) handle(chatId, text)?.let { send(chatId, it) }
         }
     }
@@ -83,7 +89,13 @@ class TelegramBot(
         runCatching { call("answerCallbackQuery", "callback_query_id" to cb.getString("id")) }
         val chatId = cb.optJSONObject("message")?.optJSONObject("chat")?.optLong("id") ?: return
         val data = cb.optString("data")
-        if (data.isNotBlank()) handle(chatId, data)?.let { send(chatId, it) }
+        Log.i(TAG, "callback from $chatId: $data")
+        if (data.isNotBlank()) {
+            val reply = runCatching { handle(chatId, data) }.getOrElse {
+                Log.e(TAG, "handle failed for '$data'", it); Reply("Помилка: ${it.message}")
+            }
+            reply?.let { send(chatId, it) }
+        }
     }
 
     private fun keyboardJson(rows: List<List<Button>>): String {
@@ -117,7 +129,9 @@ class TelegramBot(
     }
 
     private companion object {
+        const val TAG = "TelegramBot"
         const val POLL_SECONDS = 50
         const val RETRY_MS = 10_000L
+        const val ALLOWED = """["message","callback_query"]"""
     }
 }

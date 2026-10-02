@@ -19,9 +19,19 @@
             </intent-filter>
         </activity>
 
+        <!-- Invisible revive entry for the watchdog: transparent, starts the service, finishes. -->
+        <activity
+            android:name=".BootstrapActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:noHistory="true" />
+
+        <!-- exported so the shell-uid watchdog can restart it silently (am start-foreground-service)
+             after an ignition-off kill, without launching the activity and stealing the screen. -->
         <service
             android:name=".CarRemoteService"
-            android:exported="false" />
+            android:exported="true" />
 
         <!-- Not for reading notifications: an enabled listener is auto-restarted by the
              system after the app is killed, which is our only way back after quickboot. -->

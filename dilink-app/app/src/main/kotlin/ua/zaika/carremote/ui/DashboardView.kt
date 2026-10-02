@@ -65,7 +65,7 @@ class DashboardView(context: Context) : View(context) {
 
         // --- Tiles (right) ---
         val tiles = listOf(
-            "SoH" to (snap.soh?.let { "$it%" } ?: "—"),
+            "Здоров'я батареї" to (snap.soh?.let { "$it%" } ?: "—"),
             "Темп. батареї" to (snap.battTempC?.let { "$it°C" } ?: "—"),
             "Бортова 12V" to (snap.v12?.let { "%.1f В".format(it) } ?: "—"),
             "Потужність" to (snap.powerKw?.let { "$it кВт" } ?: "—"),
