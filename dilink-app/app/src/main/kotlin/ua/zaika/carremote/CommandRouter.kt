@@ -47,9 +47,13 @@ class CommandRouter(
             "/start", "/help", "menu" -> menu(HELP)
             "/status", "status" -> Reply(status())
             "/ping", "ping" -> Reply("pong — авто на зв'язку")
-            "/parked" -> parkedPreview()
+            "/parked", "parked" -> parkedPreview()
             "/probe" -> probe(parts.drop(1))
-            "/setlow" -> setLow(parts.getOrNull(1))
+            "/setlow" -> Reply(setLow(parts.getOrNull(1)?.toIntOrNull()))
+            "setlow_menu" -> Reply(
+                "Поріг низького заряду: ${lowSoc()}%. Обери новий:",
+                InlineKeyboard(listOf(listOf(15, 20, 25, 30).map { Button("$it%", "setlow_$it") })),
+            )
 
             "temp_up" -> changeTemp(+1)
             "temp_down" -> changeTemp(-1)
@@ -74,8 +78,10 @@ class CommandRouter(
             )
             "unlock_do" -> run(Controls.UNLOCK)
 
-            else -> Controls.byId[token]?.let { run(it) }
-                ?: Reply("Невідома команда. /help — список.")
+            else -> when {
+                token.startsWith("setlow_") -> Reply(setLow(token.removePrefix("setlow_").toIntOrNull()))
+                else -> Controls.byId[token]?.let { run(it) } ?: Reply("Невідома команда. /help — список.")
+            }
         }
     }
 
@@ -143,11 +149,10 @@ class CommandRouter(
         return Reply(if (got == target) "🌡 Клімат: $target °C" else "🌡 Надіслано $target °C (стан $got)")
     }
 
-    private fun setLow(arg: String?): Reply {
-        val n = arg?.toIntOrNull()
-        if (n == null || n !in 5..90) return Reply("Формат: /setlow <5–90>. Зараз: ${lowSoc()}%.")
+    private fun setLow(n: Int?): String {
+        if (n == null || n !in 5..90) return "Формат: /setlow <5–90>. Зараз: ${lowSoc()}%."
         prefs.edit().putInt(KEY_LOW_SOC, n).apply()
-        return Reply("Поріг низького заряду: $n%.")
+        return "Поріг низького заряду: $n%."
     }
 
     fun lowSoc(): Int = prefs.getInt(KEY_LOW_SOC, DEFAULT_LOW_SOC)
@@ -185,6 +190,7 @@ class CommandRouter(
             listOf("🌬 Обігрів скла" to "defrost_on", "❄️ Обігрів вимк." to "defrost_off"),
             listOf("🔥 Сид. водія" to "seat_driver", "🔥 Сид. пасажира" to "seat_pass"),
             listOf("📍 Знайти авто" to "findcar"),
+            listOf("🅿️ Знімок стоянки" to "parked", "🪫 Поріг заряду" to "setlow_menu"),
         )
         val MAIN_LABELS: List<List<String>> = BUTTONS.map { row -> row.map { it.first } }
         val BUTTON_ID: Map<String, String> = BUTTONS.flatten().associate { it.first to it.second }

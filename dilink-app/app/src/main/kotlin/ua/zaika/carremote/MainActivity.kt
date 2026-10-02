@@ -1,11 +1,12 @@
 package ua.zaika.carremote
 
 import android.app.Activity
+import android.content.Context
 import android.graphics.Color
 import android.os.Bundle
-import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.Switch
 import android.widget.TextView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -42,10 +43,21 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(6), dp(16), dp(10))
         }
 
+        val prefs = getSharedPreferences("carremote", Context.MODE_PRIVATE)
+        val keepAwake = Switch(this).apply {
+            text = "🅿️  Доступність на стоянці (тримати на зв'язку)"
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            isChecked = prefs.getBoolean("keep_awake", false)
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            setOnCheckedChangeListener { _, checked -> prefs.edit().putBoolean("keep_awake", checked).apply() }
+        }
+
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#0E1420"))
             addView(dashboard, LinearLayout.LayoutParams(MATCH, 0, 1f))
+            addView(keepAwake)
             addView(statusLine)
         })
 

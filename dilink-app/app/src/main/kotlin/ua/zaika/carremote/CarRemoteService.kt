@@ -7,6 +7,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
+import android.os.PowerManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,6 +18,7 @@ import kotlinx.coroutines.launch
 import ua.zaika.carremote.adb.AdbShell
 import ua.zaika.carremote.car.Autoservice
 import ua.zaika.carremote.car.CarSnapshot
+import ua.zaika.carremote.car.Fids
 import ua.zaika.carremote.car.Notifier
 import ua.zaika.carremote.car.ShutdownReport
 import ua.zaika.carremote.car.TripTracker
@@ -32,6 +34,7 @@ class CarRemoteService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var adb: AdbShell
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -105,11 +108,43 @@ class CarRemoteService : Service() {
                 }
             }
         }
+
+        // Keep-awake ("available while parked") mode: hold a wake lock and tell the watchdog
+        // to keep the unit from sleeping, with a low-battery cutoff to protect the pack.
+        val pm = getSystemService(PowerManager::class.java)
+        scope.launch {
+            while (isActive) {
+                var keep = prefs.getBoolean(KEY_KEEP_AWAKE, false)
+                if (keep && car.isReachable()) {
+                    val soc = car.getFloat(Fids.DEV_STATISTIC, Fids.SOC)
+                    if (soc != null && soc <= KEEP_AWAKE_MIN_SOC) {
+                        keep = false
+                        prefs.edit().putBoolean(KEY_KEEP_AWAKE, false).apply()
+                        if (owner != 0L) runCatching {
+                            bot.send(owner, "🅿️ Режим доступності вимкнено: заряд ${soc.toInt()}% (захист батареї)")
+                        }
+                    }
+                }
+                if (keep) {
+                    if (wakeLock?.isHeld != true) {
+                        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "carremote:parked")
+                            .apply { setReferenceCounted(false); acquire() }
+                    }
+                } else {
+                    wakeLock?.let { if (it.isHeld) it.release() }
+                    wakeLock = null
+                }
+                runCatching { watchdog?.writeKeepAwake(keep) }
+                delay(15_000)
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_STICKY
 
     override fun onDestroy() {
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = null
         scope.cancel()
         adb.close()
         telegramStatus = "Сервіс зупинено"
@@ -135,6 +170,8 @@ class CarRemoteService : Service() {
     companion object {
         private const val CHANNEL_ID = "car_remote"
         private const val NOTIFICATION_ID = 1
+        private const val KEY_KEEP_AWAKE = "keep_awake"
+        private const val KEEP_AWAKE_MIN_SOC = 15f // auto-off below this charge to protect the pack
 
         // Read by the status screen.
         @Volatile var adbStatus = "ADB: ще не перевірено"
