@@ -12,6 +12,7 @@ data class Control(
     val fid: Int,
     val value: Int,
     val confirm: Boolean = false,
+    val needsPark: Boolean = false, // moving parts: only when the car is in Park
     val verify: Verify? = null,
 ) {
     data class Verify(val dev: Int, val fid: Int, val expected: Int)
@@ -43,11 +44,19 @@ object Controls {
     val DEFROST_ON = Control("defrost_on", "🌬 Обігрів скла", Fids.DEV_CLIMATE, 501219357, 1)
     val DEFROST_OFF = Control("defrost_off", "⭕ Обігрів скла вимк.", Fids.DEV_CLIMATE, 501219357, 0)
 
+    // Moving parts — gated to Park.
+    val SUNROOF_OPEN = Control("sunroof_open", "☀️ Люк відкрити", Fids.DEV_BODYWORK, Fids.SUNROOF_CTRL, 1, needsPark = true)
+    val SUNROOF_CLOSE = Control("sunroof_close", "☀️ Люк закрити", Fids.DEV_BODYWORK, Fids.SUNROOF_CTRL, 2, needsPark = true)
+    val FRUNK_OPEN = Control("frunk_open", "🧳 Фронт-багажник", Fids.DEV_BODYWORK, Fids.FRUNK, 1, needsPark = true)
+    val FRUNK_CLOSE = Control("frunk_close", "🧳 Закрити фронт", Fids.DEV_BODYWORK, Fids.FRUNK, 3, needsPark = true)
+
     // Temperature set point is handled on its own — the written value is the temperature.
     const val TEMP_FID = 501219368
     const val TEMP_MIN = 16
     const val TEMP_MAX = 30
 
-    val byId: Map<String, Control> =
-        listOf(CLIMATE_ON, CLIMATE_OFF, LOCK, UNLOCK, DEFROST_ON, DEFROST_OFF).associateBy { it.id }
+    val byId: Map<String, Control> = listOf(
+        CLIMATE_ON, CLIMATE_OFF, LOCK, UNLOCK, DEFROST_ON, DEFROST_OFF,
+        SUNROOF_OPEN, SUNROOF_CLOSE, FRUNK_OPEN, FRUNK_CLOSE,
+    ).associateBy { it.id }
 }

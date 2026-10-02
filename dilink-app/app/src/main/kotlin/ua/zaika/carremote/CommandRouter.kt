@@ -65,6 +65,8 @@ class CommandRouter(
                 "пасажира", Fids.SEAT_HEAT_PASS_SWITCH, Fids.SEAT_HEAT_PASS_LEVEL, Fids.SEAT_HEAT_PASS_READ,
             )
             "findcar" -> findCar()
+            "windows_open" -> windows(open = true)
+            "windows_close" -> windows(open = false)
 
             // Unlock asks first, with a one-off inline confirm button.
             "unlock" -> Reply(
@@ -97,6 +99,7 @@ class CommandRouter(
 
     private fun run(c: Control): Reply {
         if (!car.isReachable()) return Reply(noAdb())
+        if (c.needsPark && !isParked()) return Reply("⚠️ ${c.label}: лише коли авто стоїть (передача P).")
         car.write(c.dev, c.fid, c.value)
         val verify = c.verify ?: return Reply("✅ Надіслано: ${c.label}")
         Thread.sleep(SETTLE_MS) // let the command reach the bus before reading it back
@@ -126,6 +129,19 @@ class CommandRouter(
             if (now != null && now > 0) "🔥 Підігрів $who: увімкнено (рівень $now)"
             else "⚠️ Підігрів $who: надіслано, підтвердження немає (стан=$now).",
         )
+    }
+
+    private fun isParked(): Boolean = car.getInt(Fids.DEV_GEAR, Fids.GEAR) == 1
+
+    /** Opens or closes all four windows (gated to Park), verified via the window %. */
+    private fun windows(open: Boolean): Reply {
+        if (!car.isReachable()) return Reply(noAdb())
+        if (!isParked()) return Reply("⚠️ Вікна: лише коли авто стоїть (передача P).")
+        val target = if (open) 100 else 0
+        Fids.WINDOW_SET.forEach { car.write(Fids.DEV_BODYWORK, it, target) }
+        Thread.sleep(SETTLE_MS)
+        val now = Fids.WINDOWS.joinToString(" ") { car.getInt(Fids.DEV_BODYWORK, it)?.let { p -> "$p%" } ?: "?" }
+        return Reply("🪟 Вікна ${if (open) "відкрито" else "закрито"}: $now")
     }
 
     /** "Find car": flash the hazards for a few seconds. */
@@ -189,6 +205,9 @@ class CommandRouter(
             listOf("🔒 Замкнути" to "lock", "🔓 Відімкнути" to "unlock"),
             listOf("🌬 Обігрів скла" to "defrost_on", "❄️ Обігрів вимк." to "defrost_off"),
             listOf("🔥 Сид. водія" to "seat_driver", "🔥 Сид. пасажира" to "seat_pass"),
+            listOf("🪟 Вікна відкр." to "windows_open", "🪟 Вікна закр." to "windows_close"),
+            listOf("☀️ Люк відкр." to "sunroof_open", "☀️ Люк закр." to "sunroof_close"),
+            listOf("🧳 Фронт-багажник" to "frunk_open", "🧳 Закрити фронт" to "frunk_close"),
             listOf("📍 Знайти авто" to "findcar"),
             listOf("🅿️ Стан на стоянці" to "parked", "🪫 Поріг заряду" to "setlow_menu"),
         )
