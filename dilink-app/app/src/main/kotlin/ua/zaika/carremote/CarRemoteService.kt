@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.location.LocationManager
 import android.os.IBinder
 import android.os.PowerManager
 import kotlinx.coroutines.CoroutineScope
@@ -101,8 +102,11 @@ class CarRemoteService : Service() {
                         // and respawn the watchdog if it died.
                         CarSnapshot.read(car)?.let { snap ->
                             trip.baselineIfNeeded(snap)
-                            val body = ShutdownReport.body(snap) + (trip.line(snap)?.let { "\n$it" } ?: "")
+                            val loc = readLocation()
+                            val map = loc?.let { "\n📍 https://maps.google.com/?q=${it.first},${it.second}" } ?: ""
+                            val body = ShutdownReport.body(snap) + (trip.line(snap)?.let { "\n$it" } ?: "") + map
                             runCatching { watchdog?.writeParked(body) }
+                            runCatching { watchdog?.writeLoc(loc) }
                         }
                         if (ticks++ % 5 == 0) runCatching { watchdog?.ensureRunning() }
                     }
@@ -140,6 +144,17 @@ class CarRemoteService : Service() {
                 delay(15_000)
             }
         }
+    }
+
+    /** Most recent GPS fix from the head unit, or null if unavailable / no permission. */
+    private fun readLocation(): Pair<Double, Double>? = try {
+        val lm = getSystemService(LocationManager::class.java)
+        listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+            .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
+            .maxByOrNull { it.time }
+            ?.let { it.latitude to it.longitude }
+    } catch (e: Exception) {
+        null
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_STICKY

@@ -56,11 +56,18 @@ class Watchdog(private val adb: AdbShell, token: String, chatId: Long) {
         adb.exec("echo ${if (on) 1 else 0} > $KEEP_PATH")
     }
 
+    /** Caches the last GPS fix ("lat lon") so the shutdown message can carry a map pin. */
+    fun writeLoc(loc: Pair<Double, Double>?) {
+        val line = loc?.let { "${it.first} ${it.second}" } ?: ""
+        adb.exec("echo '$line' > $LOC_PATH")
+    }
+
     private companion object {
         const val SCRIPT_PATH = "/data/local/tmp/cr_watch.sh"
         const val PID_PATH = "/data/local/tmp/cr_watch.pid"
         const val PARKED_PATH = "/data/local/tmp/cr_parked.txt"
         const val KEEP_PATH = "/data/local/tmp/cr_keepawake"
+        const val LOC_PATH = "/data/local/tmp/cr_loc"
 
         val SCRIPT = """
             PKG=ua.zaika.carremote
@@ -68,6 +75,7 @@ class Watchdog(private val adb: AdbShell, token: String, chatId: Long) {
             CHAT='@CHAT@'
             PARKED=$PARKED_PATH
             KEEP_FILE=$KEEP_PATH
+            LOC_FILE=$LOC_PATH
             echo §§ > $PID_PATH
             prev=1
             cooldown=0
@@ -89,6 +97,10 @@ class Watchdog(private val adb: AdbShell, token: String, chatId: Long) {
                     MSG="🅿️ Авто заглушено о §(date +%H:%M)
             §(cat §PARKED)"
                     curl -s --max-time 15 "https://api.telegram.org/bot§TOKEN/sendMessage" --data-urlencode "chat_id=§CHAT" --data-urlencode "text=§MSG" >/dev/null 2>&1
+                    LOC=§(cat §LOC_FILE 2>/dev/null)
+                    if [ -n "§LOC" ]; then
+                      curl -s --max-time 15 "https://api.telegram.org/bot§TOKEN/sendLocation" --data-urlencode "chat_id=§CHAT" -d "latitude=§{LOC%% *}" -d "longitude=§{LOC##* }" >/dev/null 2>&1
+                    fi
                     cooldown=§((now + 45))
                   fi
                 fi

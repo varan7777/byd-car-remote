@@ -207,7 +207,7 @@ class CommandRouter(
             listOf("🔥 Сид. водія" to "seat_driver", "🔥 Сид. пасажира" to "seat_pass"),
             listOf("🪟 Вікна відкр." to "windows_open", "🪟 Вікна закр." to "windows_close"),
             listOf("☀️ Люк відкр." to "sunroof_open", "☀️ Люк закр." to "sunroof_close"),
-            listOf("🧳 Фронт-багажник" to "frunk_open", "🧳 Закрити фронт" to "frunk_close"),
+            listOf("🧳 Багажник відкр." to "trunk_open", "🧳 Багажник закр." to "trunk_close"),
             listOf("📍 Знайти авто" to "findcar"),
             listOf("🅿️ Стан на стоянці" to "parked", "🪫 Поріг заряду" to "setlow_menu"),
         )

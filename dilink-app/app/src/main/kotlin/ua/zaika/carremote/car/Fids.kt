@@ -66,7 +66,7 @@ object Fids {
     // Control channels (dev 1001), from BYDMate's Leopard 3 research — the app verifies by readback.
     val WINDOW_SET = listOf(1276219408, 1276219424, 1276219416, 1276219432) // 0..100% per window
     const val SUNROOF_CTRL = 1125122056 // 1 open, 2 close, 3 tilt, 4 stop
-    const val FRUNK = 1276182560 // front trunk: 1 open, 3 close
+    const val REAR_TRUNK = 1125122080 // power tailgate: 1 open, 3 close (read state via TRUNK)
 
     // Front left, front right, rear left, rear right.
     val DOORS = listOf(692060168, 692060170, 692060172, 692060174) // dev 1001, int: 1 open
