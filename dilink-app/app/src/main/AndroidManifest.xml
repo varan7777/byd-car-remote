@@ -8,6 +8,9 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Lets the background service read GPS (Android 10+ gates location to "in use" otherwise). -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <application
         android:allowBackup="false"
@@ -34,6 +37,7 @@
              after an ignition-off kill, without launching the activity and stealing the screen. -->
         <service
             android:name=".CarRemoteService"
+            android:foregroundServiceType="location"
             android:exported="true" />
 
         <!-- Not for reading notifications: an enabled listener is auto-restarted by the
