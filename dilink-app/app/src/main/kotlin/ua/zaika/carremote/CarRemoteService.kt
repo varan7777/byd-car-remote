@@ -61,7 +61,11 @@ class CarRemoteService : Service() {
         // "car switched off" message itself (the app is killed too fast to do it). It needs
         // the owner chat; without it we have no one to message anyway.
         val watchdog = if (owner != 0L) Watchdog(adb, token, owner) else null
-        scope.launch { watchdog?.run { install(); restart() } }
+        scope.launch {
+            watchdog?.run { install(); restart() }
+            // The watchdog dies with a full power-down; this anchor brings us back after one.
+            KeepAliveA11yService.ensureEnabled(adb)
+        }
 
         // skipBacklog (inside run) still drops stale commands; the greeting is sent by the
         // reachability loop instead, so it also fires when the car wakes from sleep.
