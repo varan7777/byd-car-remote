@@ -25,6 +25,12 @@
             </intent-filter>
         </activity>
 
+        <!-- Air-raid / UAV map screen (NEPTUN). Opened from the dashboard, not a launcher. -->
+        <activity
+            android:name=".ui.AirAlertActivity"
+            android:label="Повітряна тривога"
+            android:exported="false" />
+
         <!-- Invisible revive entry for the watchdog: transparent, starts the service, finishes. -->
         <activity
             android:name=".BootstrapActivity"

@@ -21,8 +21,8 @@ android {
         // DiLink 4.0 runs Android 10 (API 29). Staying on 29 avoids the newer
         // background-start and foreground-service-type restrictions.
         targetSdk = 29
-        versionCode = 23
-        versionName = "0.12.0"
+        versionCode = 24
+        versionName = "0.13.0"
 
         ndk { abiFilters += "arm64-v8a" }
 
@@ -45,6 +45,9 @@ android {
 
 dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    // Raster-tile (OpenStreetMap) slippy map rendered on Canvas — no WebGL, no Google Play.
+    // Lets the air-threat map zoom down to street level on head units whose WebView lacks WebGL.
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
     // Pure-Kotlin ADB client (Apache 2.0): lets the app reach the head unit's own adbd.
     implementation("dev.mobile:dadb:1.2.9") {
         // dadb's POM leaks a GraalVM test helper that drags all of JUnit into the APK.
