@@ -182,12 +182,18 @@ class CarRemoteService : Service() {
             monitor.run { state ->
                 airState = state
                 if (state.isAlarm && !airAlarmActive) {
-                    airTone?.let { t -> scope.launch { repeat(4) { t.startTone(ToneGenerator.TONE_PROP_BEEP2, 300); delay(400) } } }
+                    airBeep()
                     if (prefs.getBoolean(KEY_VOICE, true)) airSpeaker?.speak(state.voiceAlert())
                 }
                 airAlarmActive = state.isAlarm
             }
         }
+    }
+
+    /** The alarm beep pattern on the alarm audio stream. */
+    private fun airBeep() {
+        val t = airTone ?: return
+        scope.launch { repeat(4) { t.startTone(ToneGenerator.TONE_PROP_BEEP2, 300); delay(400) } }
     }
 
     /** Most recent GPS fix from the head unit, or null if unavailable / no permission. */
@@ -201,7 +207,15 @@ class CarRemoteService : Service() {
         null
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_TEST) {
+            airBeep()
+            if (getSharedPreferences("carremote", Context.MODE_PRIVATE).getBoolean(KEY_VOICE, true)) {
+                airSpeaker?.speak("Увага. Перевірка сигналу. Безпілотник за десять кілометрів. Курс на вас.")
+            }
+        }
+        return START_STICKY
+    }
 
     override fun onDestroy() {
         wakeLock?.let { if (it.isHeld) it.release() }
@@ -243,6 +257,12 @@ class CarRemoteService : Service() {
         const val KEY_RADIUS = "air_radius_km"
         const val KEY_VOICE = "air_voice"
         const val DEFAULT_RADIUS = 40
+        const val ACTION_TEST = "ua.zaika.carremote.action.AIR_TEST"
+
+        /** Fire a one-off test beep + spoken warning through the running service. */
+        fun testAlarm(context: Context) {
+            context.startService(Intent(context, CarRemoteService::class.java).setAction(ACTION_TEST))
+        }
 
         // Read by the status screen.
         @Volatile var adbStatus = "ADB: ще не перевірено"

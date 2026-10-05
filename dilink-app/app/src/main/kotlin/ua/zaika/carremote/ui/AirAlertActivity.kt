@@ -7,8 +7,6 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -40,11 +38,11 @@ import java.io.File
 /**
  * Air-raid / UAV screen for the head unit.
  *
- * Shows a dark raster OpenStreetMap (osmdroid, plain Canvas — no WebGL, so it works on cheap
- * DiLink units and zooms to street level) with threat markers, the car, and alert oblasts
- * shaded red. A toggle opens NEPTUN's online (WebGL) map in a WebView for units that can show
- * it. The air situation itself — and the audible/spoken alarm — is produced by [CarRemoteService];
- * this screen only renders the state it publishes and lets the user tune the alarm radius/voice.
+ * Shows an OpenStreetMap (osmdroid, plain Canvas — no WebGL, so it renders on cheap DiLink
+ * units and zooms to street level) with threat markers + trails, the car, and alert oblasts
+ * shaded red. The air situation and the audible/spoken alarm are produced by [CarRemoteService];
+ * this screen renders the state it publishes and lets the user tune radius/voice (and test the
+ * alarm).
  */
 class AirAlertActivity : Activity() {
 
@@ -54,11 +52,8 @@ class AirAlertActivity : Activity() {
     private lateinit var map: MapView
     private val threatsOverlay = ThreatsOverlay()
     private lateinit var banner: TextView
-    private lateinit var toggle: Button
     private lateinit var settingsPanel: LinearLayout
     private lateinit var radiusLabel: TextView
-    private var web: WebView? = null
-    private var showWeb = false
 
     private val prefs by lazy { getSharedPreferences("carremote", Context.MODE_PRIVATE) }
     private val regions by lazy { RegionLocator(applicationContext) }
@@ -81,15 +76,12 @@ class AirAlertActivity : Activity() {
         }
 
         map = MapView(this).apply {
-            // Standard OpenStreetMap — normal, fully-labelled colours, no key. (We tried an
-            // inverted "dark" look, but inversion turns greens purple; CARTO's dark tiles now
-            // require an API key, so plain OSM is the reliable, natural-looking choice.)
-            setTileSource(TileSourceFactory.MAPNIK)
-            setMultiTouchControls(true)      // pinch zoom
+            setTileSource(TileSourceFactory.MAPNIK) // standard OSM: normal colours, labels, no key
+            setMultiTouchControls(true)             // pinch zoom
             setUseDataConnection(true)
-            controller.setZoom(11.0)         // ~city/district level
+            controller.setZoom(11.0)                // ~city/district level
             controller.setCenter(GeoPoint(49.0, 31.5)) // Ukraine, until the first GPS fix
-            overlays.add(CopyrightOverlay(this@AirAlertActivity)) // OSM + CARTO attribution
+            overlays.add(CopyrightOverlay(this@AirAlertActivity)) // "© OpenStreetMap contributors"
             overlays.add(threatsOverlay)
         }
 
@@ -101,10 +93,6 @@ class AirAlertActivity : Activity() {
             text = "Завантаження повітряної обстановки…"
         }
 
-        toggle = Button(this).apply {
-            text = "🌐 Онлайн-карта"
-            setOnClickListener { setShowWeb(!showWeb) }
-        }
         val recenter = Button(this).apply {
             text = "📍 Моє місце"
             setOnClickListener { recenter() }
@@ -118,7 +106,6 @@ class AirAlertActivity : Activity() {
         val buttons = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(gear)
-            addView(toggle)
             addView(recenter)
         }
 
@@ -128,7 +115,7 @@ class AirAlertActivity : Activity() {
             setBackgroundColor(Color.parseColor("#0E1420"))
             addView(map, FrameLayout.LayoutParams(MATCH, MATCH))
             addView(banner, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP))
-            addView(settingsPanel, FrameLayout.LayoutParams(dp(280), WRAP, Gravity.TOP or Gravity.END).apply {
+            addView(settingsPanel, FrameLayout.LayoutParams(dp(300), WRAP, Gravity.TOP or Gravity.END).apply {
                 setMargins(0, dp(64), dp(12), 0)
             })
             addView(buttons, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.END).apply {
@@ -164,7 +151,6 @@ class AirAlertActivity : Activity() {
 
     override fun onDestroy() {
         ui.cancel()
-        web?.destroy()
         map.onDetach()
         super.onDestroy()
     }
@@ -235,6 +221,10 @@ class AirAlertActivity : Activity() {
             isChecked = prefs.getBoolean(CarRemoteService.KEY_VOICE, true)
             setOnCheckedChangeListener { _, on -> prefs.edit().putBoolean(CarRemoteService.KEY_VOICE, on).apply() }
         }
+        val test = Button(this).apply {
+            text = "🔊 Перевірити сигнал"
+            setOnClickListener { CarRemoteService.testAlarm(this@AirAlertActivity) }
+        }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
@@ -243,58 +233,14 @@ class AirAlertActivity : Activity() {
             addView(radiusLabel)
             addView(slider)
             addView(voice)
+            addView(test)
         }
     }
 
     private fun recenter() {
         val fix = Geo.lastKnown(applicationContext) ?: return
-        if (showWeb) centerWebOnCar(fix) else {
-            map.controller.animateTo(GeoPoint(fix.first, fix.second))
-            map.controller.setZoom(12.0)
-        }
-    }
-
-    private fun setShowWeb(on: Boolean) {
-        showWeb = on
-        toggle.text = if (on) "🗺 Проста карта" else "🌐 Онлайн-карта"
-        map.visibility = if (on) View.GONE else View.VISIBLE
-        if (on) ensureWeb().visibility = View.VISIBLE else web?.visibility = View.GONE
-    }
-
-    private fun ensureWeb(): WebView {
-        web?.let { return it }
-        val w = WebView(this).apply {
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView, url: String) {
-                    Geo.lastKnown(applicationContext)?.let { centerWebOnCar(it) }
-                }
-            }
-            loadUrl("https://neptun.in.ua/embed/map?lang=uk")
-        }
-        // Above the map, below the banner, panel and buttons.
-        ((findViewById<View>(android.R.id.content) as ViewGroup).getChildAt(0) as FrameLayout)
-            .addView(w, 1, FrameLayout.LayoutParams(MATCH, MATCH))
-        web = w
-        return w
-    }
-
-    private fun centerWebOnCar(fix: Pair<Double, Double>) {
-        val (lat, lon) = fix
-        val js = """
-            (function(){
-              function c(){
-                if(window.__neptun&&window.__neptun.map){
-                  try{window.__neptun.map.jumpTo({center:[$lon,$lat],zoom:10});}catch(e){}
-                  return true;
-                }
-                return false;
-              }
-              if(!c()){ var n=0,t=setInterval(function(){ if(c()||++n>40) clearInterval(t); },300); }
-            })();
-        """.trimIndent()
-        web?.evaluateJavascript(js, null)
+        map.controller.animateTo(GeoPoint(fix.first, fix.second))
+        map.controller.setZoom(12.0)
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
