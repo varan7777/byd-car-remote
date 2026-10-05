@@ -30,7 +30,8 @@ data class AirState(
         val km = nearestKm ?: return "🟢 Поблизу чисто"
         val f = fix ?: return "${n.label} ~${km.roundToInt()} км"
         val where = Geo.compass(Geo.bearingDeg(f.first, f.second, n.lat, n.lon))
-        val appr = if (approaching) " · курс на вас" else ""
+        // "курс на вас" only makes sense when it's actually near — not for a drone 200 km away.
+        val appr = if (approaching && km <= radiusKm) " · курс на вас" else ""
         val tag = if (km <= radiusKm) "🚨" else "•"
         return "$tag ${n.label} ~${km.roundToInt()} км ($where)$appr"
     }

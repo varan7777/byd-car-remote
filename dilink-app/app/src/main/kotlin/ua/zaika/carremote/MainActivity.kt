@@ -90,7 +90,7 @@ class MainActivity : Activity() {
                 val snap = withContext(Dispatchers.IO) { CarSnapshot.read(car) }
                 dashboard.snapshot = snap
                 statusLine.text = "Car Remote v${BuildConfig.VERSION_NAME}   ·   " +
-                    "${CarRemoteService.adbStatus}   ·   ${CarRemoteService.telegramStatus}"
+                    "${CarRemoteService.adbStatus}   ·   ${CarRemoteService.telegramStatus}   ·   Varan7777"
                 renderAir(CarRemoteService.airState)
                 delay(3_000)
             }

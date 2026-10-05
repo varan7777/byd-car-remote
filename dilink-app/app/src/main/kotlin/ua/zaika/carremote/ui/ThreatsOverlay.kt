@@ -57,8 +57,9 @@ class ThreatsOverlay : Overlay() {
     private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val arrow = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
     private val trail = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
-    private val carFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF39D98A.toInt(); style = Paint.Style.FILL }
-    private val carRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF39D98A.toInt(); style = Paint.Style.STROKE }
+    // Bright red so the car stands out on the green/grey OSM map (green blended in).
+    private val carFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFF1744.toInt(); style = Paint.Style.FILL }
+    private val carRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFF1744.toInt(); style = Paint.Style.STROKE }
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
     private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x66000000; style = Paint.Style.FILL }
 

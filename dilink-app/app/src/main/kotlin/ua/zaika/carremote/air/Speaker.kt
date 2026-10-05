@@ -9,38 +9,61 @@ import android.util.Log
 import java.util.Locale
 
 /**
- * Ukrainian text-to-speech for spoken air-raid warnings. Speaks on the ALARM stream (same route
- * as the beep, which is reliably audible on the head unit). No-ops silently if the device has no
- * TTS engine or no suitable voice, so the beep + banner still carry the alert. Logs under the
- * "AirSpeaker" tag so language support / playback can be diagnosed from logcat.
+ * Ukrainian text-to-speech for spoken air-raid warnings.
+ *
+ * The DiLink's own TTS engine (com.byd.autovoice) speaks neither Ukrainian nor English, so we
+ * prefer RHVoice — a free, offline, open-source engine with Ukrainian voices — and fall back to
+ * the system default if it isn't installed. Speaks on the ALARM stream (same reliably-audible
+ * route as the beep). No-ops silently if no usable voice exists, so the beep + banner still
+ * carry the alert. Logs under "AirSpeaker".
  */
 class Speaker(context: Context) {
 
+    private val appContext = context.applicationContext
     private var tts: TextToSpeech? = null
     private var ready = false
 
     init {
-        tts = TextToSpeech(context.applicationContext) { status ->
-            if (status != TextToSpeech.SUCCESS) {
-                Log.w(TAG, "TTS init failed: status=$status")
-                return@TextToSpeech
-            }
-            val engine = tts ?: return@TextToSpeech
-            val uk = runCatching { engine.setLanguage(Locale("uk", "UA")) }.getOrNull()
-            Log.i(TAG, "engine=${runCatching { engine.defaultEngine }.getOrNull()} setLanguage(uk-UA)=${langName(uk)}")
-            if (uk == TextToSpeech.LANG_MISSING_DATA || uk == TextToSpeech.LANG_NOT_SUPPORTED || uk == null) {
-                val en = runCatching { engine.setLanguage(Locale.ENGLISH) }.getOrNull()
-                Log.i(TAG, "fallback setLanguage(en)=${langName(en)}")
-            }
-            engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) { Log.i(TAG, "onStart $utteranceId") }
-                override fun onDone(utteranceId: String?) { Log.i(TAG, "onDone $utteranceId") }
-                override fun onError(utteranceId: String?) { Log.w(TAG, "onError $utteranceId") }
-                override fun onError(utteranceId: String?, errorCode: Int) { Log.w(TAG, "onError $utteranceId code=$errorCode") }
-            })
-            ready = true
-            Log.i(TAG, "ready")
+        initWith(RHVOICE) // prefer RHVoice (has Ukrainian); falls back to default on failure
+    }
+
+    private fun initWith(engine: String?) {
+        tts = if (engine != null) {
+            TextToSpeech(appContext, { status -> onInit(status, engine) }, engine)
+        } else {
+            TextToSpeech(appContext) { status -> onInit(status, null) }
         }
+    }
+
+    private fun onInit(status: Int, engine: String?) {
+        if (status != TextToSpeech.SUCCESS) {
+            if (engine != null) {
+                Log.w(TAG, "engine $engine unavailable (status=$status); falling back to default")
+                runCatching { tts?.shutdown() }
+                initWith(null)
+            } else {
+                Log.w(TAG, "TTS init failed: status=$status")
+            }
+            return
+        }
+        val tts = tts ?: return
+        val uk = runCatching { tts.setLanguage(Locale("uk", "UA")) }.getOrNull()
+        Log.i(TAG, "engine=${runCatching { tts.defaultEngine }.getOrNull()} setLanguage(uk-UA)=${langName(uk)}")
+        if ((uk == TextToSpeech.LANG_MISSING_DATA || uk == TextToSpeech.LANG_NOT_SUPPORTED || uk == null) && engine != null) {
+            // RHVoice is here but somehow has no Ukrainian voice yet; still try the default engine.
+            Log.w(TAG, "no Ukrainian on $engine; falling back to default")
+            runCatching { this.tts?.shutdown() }
+            initWith(null)
+            return
+        }
+        tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) { Log.i(TAG, "onStart $utteranceId") }
+            override fun onDone(utteranceId: String?) { Log.i(TAG, "onDone $utteranceId") }
+            override fun onError(utteranceId: String?) { Log.w(TAG, "onError $utteranceId") }
+            override fun onError(utteranceId: String?, errorCode: Int) { Log.w(TAG, "onError $utteranceId code=$errorCode") }
+        })
+        ready = true
+        Log.i(TAG, "ready (engine=$engine)")
     }
 
     fun speak(text: String) {
@@ -70,5 +93,8 @@ class Speaker(context: Context) {
         else -> "code=$code"
     }
 
-    private companion object { const val TAG = "AirSpeaker" }
+    private companion object {
+        const val TAG = "AirSpeaker"
+        const val RHVOICE = "com.github.olga_yakovleva.rhvoice.android"
+    }
 }

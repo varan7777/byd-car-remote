@@ -89,13 +89,16 @@ class DashboardView(context: Context) : View(context) {
             val y = pad + row * (tileH + pad)
             val rect = RectF(x, y, x + tileW, y + tileH)
             canvas.drawRoundRect(rect, dp(12f), dp(12f), tileBg)
+            // Size label + value to the tile height so they never overlap when the grid is short.
             textMuted.textAlign = Paint.Align.LEFT
-            textMuted.textSize = dp(14f)
-            canvas.drawText(label, x + dp(14f), y + dp(24f), textMuted)
-            val big = when { value.length > 22 -> dp(15f); value.length > 10 -> dp(19f); else -> dp(26f) }
+            textMuted.textSize = minOf(dp(13f), tileH * 0.24f)
+            val labelBaseline = y + dp(8f) + textMuted.textSize
+            canvas.drawText(label, x + dp(12f), labelBaseline, textMuted)
+            val maxVal = when { value.length > 22 -> dp(15f); value.length > 10 -> dp(19f); else -> dp(24f) }
+            val room = (y + tileH - dp(10f)) - (labelBaseline + dp(2f)) // space left under the label
             textAccent.textAlign = Paint.Align.LEFT
-            textAccent.textSize = big
-            canvas.drawText(value, x + dp(14f), y + tileH - dp(16f), textAccent)
+            textAccent.textSize = maxVal.coerceAtMost(room).coerceAtLeast(dp(9f))
+            canvas.drawText(value, x + dp(12f), y + tileH - dp(10f), textAccent)
         }
     }
 
