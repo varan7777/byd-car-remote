@@ -308,6 +308,8 @@ class CarRemoteService : Service() {
         const val KEY_VOICE = "air_voice"
         const val KEY_WIDGET = "widget"
         const val KEY_AUTOMATIONS = "automations"
+        const val KEY_TARIFF = "tariff_per_kwh"
+        const val KEY_CURRENCY = "currency"
         const val DEFAULT_RADIUS = 40
         const val ACTION_TEST = "ua.zaika.carremote.action.AIR_TEST"
 

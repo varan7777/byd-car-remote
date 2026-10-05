@@ -1,82 +1,166 @@
 package ua.zaika.carremote.ui
 
 import android.app.Activity
+import android.content.Context
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import ua.zaika.carremote.car.TripLog
+import ua.zaika.carremote.CarRemoteService
+import ua.zaika.carremote.car.EcTrip
+import ua.zaika.carremote.car.EnergyDb
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** A simple journal of drives: distance, duration, real kWh/100 and SOC used, newest first. */
+/** The car's own trip journal, as cards: distance, real kWh, efficiency (colour-coded) and cost. */
 class TripsActivity : Activity() {
+
+    private val d get() = resources.displayMetrics.density
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val log = TripLog(applicationContext)
+        val prefs = getSharedPreferences("carremote", Context.MODE_PRIVATE)
+        val tariff = prefs.getString(CarRemoteService.KEY_TARIFF, "")?.toDoubleOrNull()
+        val cur = prefs.getString(CarRemoteService.KEY_CURRENCY, "грн")?.ifBlank { "грн" } ?: "грн"
+        val trips = EnergyDb.trips(applicationContext)
 
-        val title = TextView(this).apply {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(24))
+        }
+
+        root.addView(TextView(this).apply {
             text = "📈 Поїздки"
-            setTextColor(Color.WHITE); textSize = 22f
-            setPadding(dp(16), dp(14), dp(16), dp(6))
-        }
-        val body = TextView(this).apply {
-            setTextColor(Color.parseColor("#E6EDF5")); textSize = 15f
-            setPadding(dp(16), dp(6), dp(16), dp(16))
-            setLineSpacing(dp(6).toFloat(), 1f)
-            text = render(log)
-        }
-        val clear = Button(this).apply {
-            text = "🗑 Очистити журнал"
-            setOnClickListener { log.clear(); body.text = render(log) }
+            setTextColor(WHITE); textSize = 24f; typeface = Typeface.DEFAULT_BOLD
+            setPadding(dp(4), 0, 0, dp(12))
+        })
+
+        if (trips.isEmpty()) {
+            root.addView(card().apply {
+                addView(label(if (!EnergyDb.available())
+                    "Не вдалось прочитати журнал авто. Дай дозвіл «Пам'ять» застосунку в ⚙ → Налаштування."
+                else "Поки порожньо."))
+            })
+        } else {
+            root.addView(summaryCard(trips, tariff, cur))
+            root.addView(space(dp(10)))
+            for (t in trips) { root.addView(tripCard(t, tariff, cur)); root.addView(space(dp(8))) }
         }
 
         setContentView(ScrollView(this).apply {
-            setBackgroundColor(Color.parseColor("#0E1420"))
-            addView(LinearLayout(this@TripsActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(title)
-                addView(body)
-                addView(clear, LinearLayout.LayoutParams(WRAP, WRAP).apply {
-                    gravity = Gravity.START; setMargins(dp(16), dp(8), dp(16), dp(24))
-                })
-            })
+            setBackgroundColor(BG); addView(root)
         })
     }
 
-    private fun render(log: TripLog): CharSequence {
-        val trips = log.recent(200)
-        if (trips.isEmpty()) return "Поки порожньо. Поїздки запишуться автоматично під час руху."
-        val totalKm = trips.sumOf { it.distanceKm }
-        val totalKwh = trips.mapNotNull { it.kwh }.sum()
-        val sb = StringBuilder()
-        sb.append("Усього: %.0f км".format(totalKm))
-        if (totalKwh > 0) {
-            sb.append(" · %.1f кВт·год".format(totalKwh))
-            if (totalKm >= 1) sb.append(" · сер. %.1f кВт·год/100".format(totalKwh / totalKm * 100))
+    private fun summaryCard(trips: List<EcTrip>, tariff: Double?, cur: String): View {
+        val km = trips.sumOf { it.km }
+        val kwh = trips.sumOf { it.kwh }
+        val per100 = if (km >= 1) kwh / km * 100 else null
+        val cost = tariff?.let { kwh * it }
+        val c = card(ACCENT_CARD).apply {
+            addView(label("УСЬОГО · ${trips.size} поїздок").apply { setTextColor(ACCENT) })
+            addView(space(dp(8)))
+            val row = LinearLayout(this@TripsActivity).apply { orientation = LinearLayout.HORIZONTAL }
+            row.addView(stat("%,.0f".format(km).replace(",", " "), "км"), eq())
+            row.addView(stat("%,.0f".format(kwh).replace(",", " "), "кВт·год"), eq())
+            row.addView(stat(per100?.let { "%.1f".format(it) } ?: "—", "кВт·год/100"), eq())
+            if (cost != null) row.addView(stat("%,.0f".format(cost).replace(",", " "), cur), eq())
+            addView(row)
         }
-        sb.append("\n\n")
-        val fmt = SimpleDateFormat("dd.MM  HH:mm", Locale("uk"))
-        for (t in trips) {
-            sb.append("• ").append(fmt.format(Date(t.startMs)))
-            sb.append("   %.1f км".format(t.distanceKm))
-            if (t.durationMin > 0) sb.append(" · %d хв".format(t.durationMin))
-            t.per100?.let { sb.append(" · %.1f кВт·год/100".format(it)) }
-            if (t.startSoc != null && t.endSoc != null) {
-                sb.append(" · SOC %.0f→%.0f%%".format(t.startSoc, t.endSoc))
-            }
-            sb.append("\n")
-        }
-        return sb.toString()
+        return c
     }
 
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+    private fun tripCard(t: EcTrip, tariff: Double?, cur: String): View {
+        val fmt = SimpleDateFormat("dd.MM  ·  HH:mm", Locale("uk"))
+        val card = card()
 
-    private companion object { const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT }
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        top.addView(label(fmt.format(Date(t.startMs))), LinearLayout.LayoutParams(0, WRAP, 1f))
+        if (tariff != null) top.addView(TextView(this).apply {
+            text = "%.1f %s".format(t.kwh * tariff, cur)
+            setTextColor(ACCENT); textSize = 15f; typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.END
+        })
+        card.addView(top)
+        card.addView(space(dp(4)))
+
+        val mid = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
+        mid.addView(TextView(this).apply {
+            text = "%.1f км".format(t.km)
+            setTextColor(WHITE); textSize = 22f; typeface = Typeface.DEFAULT_BOLD
+        }, LinearLayout.LayoutParams(0, WRAP, 1f))
+        mid.addView(TextView(this).apply {
+            text = "%.1f кВт·год".format(t.kwh)
+            setTextColor(MUTED); textSize = 15f
+        })
+        card.addView(mid)
+
+        t.per100?.let { p ->
+            card.addView(space(dp(6)))
+            card.addView(effChip(p))
+        }
+        return card
+    }
+
+    /** A rounded efficiency badge coloured by kWh/100. */
+    private fun effChip(per100: Double): View {
+        val color = when {
+            per100 < 17 -> GOOD
+            per100 < 22 -> MID
+            else -> HIGH
+        }
+        return TextView(this).apply {
+            text = "%.1f кВт·год/100".format(per100)
+            setTextColor(color); textSize = 13f
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(10).toFloat()
+                setColor((color and 0x00FFFFFF) or 0x22000000) // same hue, very faint fill
+            }
+            layoutParams = LinearLayout.LayoutParams(WRAP, WRAP)
+        }
+    }
+
+    private fun stat(value: String, unit: String): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        addView(TextView(this@TripsActivity).apply {
+            text = value; setTextColor(WHITE); textSize = 19f; typeface = Typeface.DEFAULT_BOLD
+        })
+        addView(TextView(this@TripsActivity).apply {
+            text = unit; setTextColor(MUTED); textSize = 12f
+        })
+    }
+
+    private fun card(bg: Int = CARD) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(16), dp(12), dp(16), dp(12))
+        background = GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setColor(bg) }
+        layoutParams = LinearLayout.LayoutParams(MATCH, WRAP)
+    }
+
+    private fun label(s: String) = TextView(this).apply { text = s; setTextColor(MUTED); textSize = 13f }
+    private fun space(h: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(MATCH, h) }
+    private fun eq() = LinearLayout.LayoutParams(0, WRAP, 1f)
+    private fun dp(v: Int) = (v * d).toInt()
+
+    private companion object {
+        const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
+        const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
+        const val BG = 0xFF0E1420.toInt()
+        const val CARD = 0xFF19202E.toInt()
+        const val ACCENT_CARD = 0xFF13261C.toInt()
+        const val WHITE = 0xFFE6EDF5.toInt()
+        const val MUTED = 0xFF8A97AD.toInt()
+        const val ACCENT = 0xFF39D98A.toInt()
+        const val GOOD = 0xFF39D98A.toInt()
+        const val MID = 0xFFFFC14D.toInt()
+        const val HIGH = 0xFFFF6B6B.toInt()
+    }
 }

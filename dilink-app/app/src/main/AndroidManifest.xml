@@ -13,9 +13,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <!-- Floating widget drawn over other apps (granted once in Settings / via adb appops). -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Read the car's own trip/energy journal on shared storage (energydata/EC_database.db). -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
 
     <application
         android:allowBackup="false"
+        android:requestLegacyExternalStorage="true"
         android:label="Car Remote">
 
         <activity
