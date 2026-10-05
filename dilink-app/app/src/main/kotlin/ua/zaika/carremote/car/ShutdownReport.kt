@@ -38,6 +38,7 @@ object ShutdownReport {
         val out = mutableListOf<String>()
         s.windowsOpenPct.forEachIndexed { i, pct -> if (pct != null && pct in 1..100) out += WINDOW_NAMES[i] }
         s.doorsOpen.forEachIndexed { i, open -> if (open == true) out += "двері ${DOOR_NAMES[i]}" }
+        if ((s.sunroofPct ?: 0) > 0) out += "люк"
         if (s.trunkOpen == true) out += "багажник"
         if (s.hoodOpen == true) out += "капот"
         return out
