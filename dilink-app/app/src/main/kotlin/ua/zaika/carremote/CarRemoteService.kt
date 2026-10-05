@@ -31,6 +31,7 @@ import ua.zaika.carremote.car.CarSnapshot
 import ua.zaika.carremote.car.Fids
 import ua.zaika.carremote.car.Notifier
 import ua.zaika.carremote.car.ShutdownReport
+import ua.zaika.carremote.car.TripLog
 import ua.zaika.carremote.car.TripTracker
 import ua.zaika.carremote.telegram.TelegramBot
 import ua.zaika.carremote.ui.WidgetOverlay
@@ -87,6 +88,21 @@ class CarRemoteService : Service() {
                     mainHandler.post { widget?.hide() }
                 }
                 delay(6_000)
+            }
+        }
+
+        // Trip journal: one drive = one trip, persisted each tick so it survives ignition-off.
+        val tripLog = TripLog(applicationContext)
+        var tripStarted = false
+        scope.launch {
+            while (isActive) {
+                if (car.isReachable()) {
+                    CarSnapshot.read(car)?.let { snap ->
+                        if (!tripStarted) { tripLog.onStart(snap); tripStarted = true }
+                        tripLog.onUpdate(snap)
+                    }
+                }
+                delay(60_000)
             }
         }
 

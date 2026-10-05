@@ -47,14 +47,11 @@ object Controls {
     // Moving parts — gated to Park.
     val SUNROOF_OPEN = Control("sunroof_open", "☀️ Люк відкрити", Fids.DEV_BODYWORK, Fids.SUNROOF_CTRL, 1, needsPark = true)
     val SUNROOF_CLOSE = Control("sunroof_close", "☀️ Люк закрити", Fids.DEV_BODYWORK, Fids.SUNROOF_CTRL, 2, needsPark = true)
-    val TRUNK_OPEN = Control(
-        "trunk_open", "🧳 Багажник відкрити", Fids.DEV_BODYWORK, Fids.REAR_TRUNK, 1, needsPark = true,
-        verify = Control.Verify(Fids.DEV_BODYWORK, Fids.TRUNK, 1),
-    )
-    val TRUNK_CLOSE = Control(
-        "trunk_close", "🧳 Багажник закрити", Fids.DEV_BODYWORK, Fids.REAR_TRUNK, 3, needsPark = true,
-        verify = Control.Verify(Fids.DEV_BODYWORK, Fids.TRUNK, 2),
-    )
+    // Power tailgate: no immediate verify. It takes several seconds to travel, so a readback
+    // right after the command races the motor and the closed state reads 0 (not 2) — which used
+    // to surface as a false "підтвердження немає (стан=0)". Just report that the command was sent.
+    val TRUNK_OPEN = Control("trunk_open", "🧳 Багажник відкрити", Fids.DEV_BODYWORK, Fids.REAR_TRUNK, 1, needsPark = true)
+    val TRUNK_CLOSE = Control("trunk_close", "🧳 Багажник закрити", Fids.DEV_BODYWORK, Fids.REAR_TRUNK, 3, needsPark = true)
 
     // Temperature set point is handled on its own — the written value is the temperature.
     const val TEMP_FID = 501219368

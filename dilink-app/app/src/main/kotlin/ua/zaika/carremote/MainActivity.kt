@@ -27,6 +27,7 @@ import ua.zaika.carremote.car.Autoservice
 import ua.zaika.carremote.car.CarSnapshot
 import ua.zaika.carremote.ui.AirAlertActivity
 import ua.zaika.carremote.ui.DashboardView
+import ua.zaika.carremote.ui.TripsActivity
 
 /** Live dashboard on the head unit. The remote itself runs in [CarRemoteService] + Telegram. */
 class MainActivity : Activity() {
@@ -61,6 +62,15 @@ class MainActivity : Activity() {
             text = "🛡️ Карта тривог і БпЛА"
             setOnClickListener { openAirMap() }
         }
+        val tripsButton = Button(this).apply {
+            text = "📈 Поїздки"
+            setOnClickListener { startActivity(Intent(this@MainActivity, TripsActivity::class.java)) }
+        }
+        val actionsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(airButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 2f))
+            addView(tripsButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
 
         val keepAwake = Switch(this).apply {
             text = "🅿️  Доступність на стоянці (тримати на зв'язку)"
@@ -94,7 +104,7 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.parseColor("#0E1420"))
             addView(dashboard, LinearLayout.LayoutParams(MATCH, 0, 1f))
             addView(airLine)
-            addView(airButton)
+            addView(actionsRow)
             addView(keepAwake)
             addView(widgetSwitch)
             addView(statusLine)
