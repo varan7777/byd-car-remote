@@ -11,6 +11,7 @@ data class EcTrip(
     val km: Double,
     val kwh: Double,
     val fuel: Double,
+    val durationS: Long,
 ) {
     val per100: Double? get() = if (km >= 0.5) kwh / km * 100 else null
 }
@@ -40,7 +41,7 @@ object EnergyDb {
             SQLiteDatabase.openDatabase(copy.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
                 val out = ArrayList<EcTrip>()
                 db.rawQuery(
-                    "SELECT start_timestamp,end_timestamp,trip,electricity,fuel FROM EnergyConsumption " +
+                    "SELECT start_timestamp,end_timestamp,trip,electricity,fuel,duration FROM EnergyConsumption " +
                         "WHERE is_deleted=0 ORDER BY start_timestamp DESC",
                     null,
                 ).use { c ->
@@ -52,6 +53,7 @@ object EnergyDb {
                                 km = c.getDouble(2),
                                 kwh = c.getDouble(3),
                                 fuel = c.getDouble(4),
+                                durationS = c.getLong(5),
                             ),
                         )
                     }
