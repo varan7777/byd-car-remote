@@ -11,6 +11,8 @@
     <!-- Lets the background service read GPS (Android 10+ gates location to "in use" otherwise). -->
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- Floating widget drawn over other apps (granted once in Settings / via adb appops). -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:allowBackup="false"

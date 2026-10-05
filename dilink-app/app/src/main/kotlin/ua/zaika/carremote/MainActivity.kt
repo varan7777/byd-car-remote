@@ -4,7 +4,9 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
@@ -68,6 +70,24 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(10), dp(16), dp(10))
             setOnCheckedChangeListener { _, checked -> prefs.edit().putBoolean("keep_awake", checked).apply() }
         }
+        val widgetSwitch = Switch(this).apply {
+            text = "📟  Плаваючий віджет (поверх усього)"
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            isChecked = prefs.getBoolean(CarRemoteService.KEY_WIDGET, false)
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            setOnCheckedChangeListener { _, checked ->
+                // Overlay needs the one-time "draw over other apps" grant; open Settings if missing.
+                if (checked && !Settings.canDrawOverlays(this@MainActivity)) {
+                    runCatching {
+                        startActivity(
+                            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")),
+                        )
+                    }
+                }
+                prefs.edit().putBoolean(CarRemoteService.KEY_WIDGET, checked).apply()
+            }
+        }
 
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -76,6 +96,7 @@ class MainActivity : Activity() {
             addView(airLine)
             addView(airButton)
             addView(keepAwake)
+            addView(widgetSwitch)
             addView(statusLine)
         })
 

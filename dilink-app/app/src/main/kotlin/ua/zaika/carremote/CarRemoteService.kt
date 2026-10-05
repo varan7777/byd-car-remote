@@ -10,8 +10,11 @@ import android.content.SharedPreferences
 import android.location.LocationManager
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
+import android.provider.Settings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -30,6 +33,7 @@ import ua.zaika.carremote.car.Notifier
 import ua.zaika.carremote.car.ShutdownReport
 import ua.zaika.carremote.car.TripTracker
 import ua.zaika.carremote.telegram.TelegramBot
+import ua.zaika.carremote.ui.WidgetOverlay
 
 /**
  * Keeps the ADB and Telegram links alive while the head unit is on.
@@ -49,6 +53,10 @@ class CarRemoteService : Service() {
     private var airAlarmActive = false
     private var prefsListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
 
+    // Floating widget (drawn over other apps). Managed on the main thread.
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var widget: WidgetOverlay? = null
+
     override fun onCreate() {
         super.onCreate()
         getSystemService(NotificationManager::class.java).createNotificationChannel(
@@ -61,6 +69,26 @@ class CarRemoteService : Service() {
 
         adb = AdbShell(this)
         val car = Autoservice(adb)
+
+        // Floating widget: mirror a few live stats over any app when enabled + permission granted.
+        // Off by default; reads only while shown, so it adds no ADB load otherwise.
+        scope.launch {
+            while (isActive) {
+                val p = getSharedPreferences("carremote", Context.MODE_PRIVATE)
+                val want = p.getBoolean(KEY_WIDGET, false) && Settings.canDrawOverlays(this@CarRemoteService)
+                if (want && car.isReachable()) {
+                    val snap = CarSnapshot.read(car)
+                    mainHandler.post {
+                        val w = widget ?: WidgetOverlay(applicationContext).also { widget = it }
+                        if (!w.isShown()) w.show()
+                        w.update(snap)
+                    }
+                } else {
+                    mainHandler.post { widget?.hide() }
+                }
+                delay(6_000)
+            }
+        }
 
         val token = BuildConfig.TELEGRAM_BOT_TOKEN
         val owner = BuildConfig.OWNER_CHAT_ID
@@ -225,6 +253,7 @@ class CarRemoteService : Service() {
         }
         airTone?.release(); airTone = null
         airSpeaker?.shutdown(); airSpeaker = null
+        widget?.hide(); widget = null
         scope.cancel()
         adb.close()
         telegramStatus = "Сервіс зупинено"
@@ -256,6 +285,7 @@ class CarRemoteService : Service() {
         // Air-watch settings (shared with the dashboard/map screens via SharedPreferences).
         const val KEY_RADIUS = "air_radius_km"
         const val KEY_VOICE = "air_voice"
+        const val KEY_WIDGET = "widget"
         const val DEFAULT_RADIUS = 40
         const val ACTION_TEST = "ua.zaika.carremote.action.AIR_TEST"
 
