@@ -10,8 +10,9 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import ua.zaika.carremote.CarRemoteService
 import ua.zaika.carremote.car.EcTrip
 import ua.zaika.carremote.car.EnergyDb
@@ -19,10 +20,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** The car's own trip journal, as cards: distance, real kWh, efficiency (colour-coded) and cost. */
+/** The car's full trip journal as a compact, colour-coded list with cost. */
 class TripsActivity : Activity() {
 
-    private val d get() = resources.displayMetrics.density
+    private val dens get() = resources.displayMetrics.density
+    private fun dp(v: Int) = (v * dens).toInt()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,134 +35,134 @@ class TripsActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(24))
+            setBackgroundColor(BG)
+            setPadding(dp(12), dp(10), dp(12), 0)
         }
-
         root.addView(TextView(this).apply {
             text = "📈 Поїздки"
-            setTextColor(WHITE); textSize = 24f; typeface = Typeface.DEFAULT_BOLD
-            setPadding(dp(4), 0, 0, dp(12))
+            setTextColor(WHITE); textSize = 20f; typeface = Typeface.DEFAULT_BOLD
+            setPadding(dp(4), 0, 0, dp(8))
         })
 
         if (trips.isEmpty()) {
-            root.addView(card().apply {
-                addView(label(if (!EnergyDb.available())
-                    "Не вдалось прочитати журнал авто. Дай дозвіл «Пам'ять» застосунку в ⚙ → Налаштування."
-                else "Поки порожньо."))
+            root.addView(TextView(this).apply {
+                text = if (!EnergyDb.available())
+                    "Не вдалось прочитати журнал авто. Дай дозвіл «Пам'ять» у ⚙ Налаштування."
+                else "Поки порожньо."
+                setTextColor(MUTED); textSize = 15f; setPadding(dp(8), dp(8), dp(8), dp(8))
             })
         } else {
-            root.addView(summaryCard(trips, tariff, cur))
-            root.addView(space(dp(10)))
-            for (t in trips) { root.addView(tripCard(t, tariff, cur)); root.addView(space(dp(8))) }
+            root.addView(summary(trips, tariff, cur))
+            root.addView(RecyclerView(this).apply {
+                layoutManager = LinearLayoutManager(this@TripsActivity)
+                adapter = TripAdapter(trips, tariff, cur, dens)
+                setPadding(0, dp(6), 0, dp(8))
+                clipToPadding = false
+            }, LinearLayout.LayoutParams(MATCH, 0, 1f))
         }
-
-        setContentView(ScrollView(this).apply {
-            setBackgroundColor(BG); addView(root)
-        })
+        setContentView(root)
     }
 
-    private fun summaryCard(trips: List<EcTrip>, tariff: Double?, cur: String): View {
+    private fun summary(trips: List<EcTrip>, tariff: Double?, cur: String): View {
         val km = trips.sumOf { it.km }
         val kwh = trips.sumOf { it.kwh }
         val per100 = if (km >= 1) kwh / km * 100 else null
         val cost = tariff?.let { kwh * it }
-        val c = card(ACCENT_CARD).apply {
-            addView(label("УСЬОГО · ${trips.size} поїздок").apply { setTextColor(ACCENT) })
-            addView(space(dp(8)))
-            val row = LinearLayout(this@TripsActivity).apply { orientation = LinearLayout.HORIZONTAL }
-            row.addView(stat("%,.0f".format(km).replace(",", " "), "км"), eq())
-            row.addView(stat("%,.0f".format(kwh).replace(",", " "), "кВт·год"), eq())
-            row.addView(stat(per100?.let { "%.1f".format(it) } ?: "—", "кВт·год/100"), eq())
-            if (cost != null) row.addView(stat("%,.0f".format(cost).replace(",", " "), cur), eq())
-            addView(row)
+        fun n(x: Double) = "%,.0f".format(x).replace(",", " ")
+        val stats = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun stat(value: String, unit: String) = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(TextView(this@TripsActivity).apply {
+                text = value; setTextColor(WHITE); textSize = 18f; typeface = Typeface.DEFAULT_BOLD
+            })
+            addView(TextView(this@TripsActivity).apply { text = unit; setTextColor(MUTED); textSize = 11f })
         }
-        return c
+        stats.addView(stat(n(km), "км"), LinearLayout.LayoutParams(0, WRAP, 1f))
+        stats.addView(stat(n(kwh), "кВт·год"), LinearLayout.LayoutParams(0, WRAP, 1f))
+        stats.addView(stat(per100?.let { "%.1f".format(it) } ?: "—", "кВт·год/100"), LinearLayout.LayoutParams(0, WRAP, 1f))
+        if (cost != null) stats.addView(stat(n(cost), cur), LinearLayout.LayoutParams(0, WRAP, 1f))
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(10), dp(14), dp(12))
+            background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(ACCENT_CARD) }
+            addView(TextView(this@TripsActivity).apply {
+                text = "УСЬОГО · ${trips.size}"; setTextColor(ACCENT); textSize = 12f; setPadding(0, 0, 0, dp(6))
+            })
+            addView(stats)
+        }
     }
 
-    private fun tripCard(t: EcTrip, tariff: Double?, cur: String): View {
-        val fmt = SimpleDateFormat("dd.MM  ·  HH:mm", Locale("uk"))
-        val card = card()
+    private class TripAdapter(
+        val items: List<EcTrip>, val tariff: Double?, val cur: String, val d: Float,
+    ) : RecyclerView.Adapter<TripAdapter.VH>() {
 
-        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        top.addView(label(fmt.format(Date(t.startMs))), LinearLayout.LayoutParams(0, WRAP, 1f))
-        if (tariff != null) top.addView(TextView(this).apply {
-            text = "%.1f %s".format(t.kwh * tariff, cur)
-            setTextColor(ACCENT); textSize = 15f; typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.END
-        })
-        card.addView(top)
-        card.addView(space(dp(4)))
+        private fun dp(v: Int) = (v * d).toInt()
+        private val fmt = SimpleDateFormat("dd.MM  HH:mm", Locale("uk"))
 
-        val mid = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
-        mid.addView(TextView(this).apply {
-            text = "%.1f км".format(t.km)
-            setTextColor(WHITE); textSize = 22f; typeface = Typeface.DEFAULT_BOLD
-        }, LinearLayout.LayoutParams(0, WRAP, 1f))
-        mid.addView(TextView(this).apply {
-            text = "%.1f кВт·год".format(t.kwh)
-            setTextColor(MUTED); textSize = 15f
-        })
-        card.addView(mid)
+        class VH(val container: LinearLayout, val date: TextView, val km: TextView, val kwh: TextView, val eff: TextView, val cost: TextView) :
+            RecyclerView.ViewHolder(container)
 
-        t.per100?.let { p ->
-            card.addView(space(dp(6)))
-            card.addView(effChip(p))
-        }
-        return card
-    }
-
-    /** A rounded efficiency badge coloured by kWh/100. */
-    private fun effChip(per100: Double): View {
-        val color = when {
-            per100 < 17 -> GOOD
-            per100 < 22 -> MID
-            else -> HIGH
-        }
-        return TextView(this).apply {
-            text = "%.1f кВт·год/100".format(per100)
-            setTextColor(color); textSize = 13f
-            setPadding(dp(10), dp(4), dp(10), dp(4))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(10).toFloat()
-                setColor((color and 0x00FFFFFF) or 0x22000000) // same hue, very faint fill
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
+            val ctx = parent.context
+            fun cell(size: Float, color: Int, weight: Float, end: Boolean = false, bold: Boolean = false) =
+                TextView(ctx).apply {
+                    textSize = size; setTextColor(color); maxLines = 1
+                    if (bold) typeface = Typeface.DEFAULT_BOLD
+                    if (end) gravity = Gravity.END
+                    layoutParams = LinearLayout.LayoutParams(0, WRAP, weight)
+                }
+            val date = cell(13f, MUTED, 2.1f)
+            val km = cell(14f, WHITE, 1.3f, bold = true)
+            val kwh = cell(13f, MUTED, 1.6f)
+            val eff = cell(13f, MUTED, 1.1f, end = true)
+            val cost = cell(13f, ACCENT, 1.3f, end = true)
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12), dp(7), dp(12), dp(7))
+                addView(date); addView(km); addView(kwh); addView(eff); addView(cost)
             }
-            layoutParams = LinearLayout.LayoutParams(WRAP, WRAP)
+            val divider = View(ctx).apply {
+                setBackgroundColor(0xFF1A2230.toInt())
+                layoutParams = LinearLayout.LayoutParams(MATCH, dp(1))
+            }
+            val container = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = RecyclerView.LayoutParams(MATCH, WRAP)
+                addView(row); addView(divider)
+            }
+            return VH(container, date, km, kwh, eff, cost)
+        }
+
+        override fun onBindViewHolder(h: VH, position: Int) {
+            val t = items[position]
+            h.date.text = fmt.format(Date(t.startMs))
+            h.km.text = "%.1f км".format(t.km)
+            h.kwh.text = "%.1f кВт·год".format(t.kwh)
+            val p = t.per100
+            h.eff.text = p?.let { "%.1f".format(it) } ?: ""
+            h.eff.setTextColor(when { p == null -> MUTED; p < 17 -> GOOD; p < 22 -> MID; else -> HIGH })
+            h.cost.text = if (tariff != null) "%.0f %s".format(t.kwh * tariff, cur) else ""
+        }
+
+        override fun getItemCount() = items.size
+
+        private companion object {
+            const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
+            const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
+            const val WHITE = 0xFFE6EDF5.toInt(); const val MUTED = 0xFF8A97AD.toInt()
+            const val ACCENT = 0xFF39D98A.toInt()
+            const val GOOD = 0xFF39D98A.toInt(); const val MID = 0xFFFFC14D.toInt(); const val HIGH = 0xFFFF6B6B.toInt()
         }
     }
-
-    private fun stat(value: String, unit: String): View = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        addView(TextView(this@TripsActivity).apply {
-            text = value; setTextColor(WHITE); textSize = 19f; typeface = Typeface.DEFAULT_BOLD
-        })
-        addView(TextView(this@TripsActivity).apply {
-            text = unit; setTextColor(MUTED); textSize = 12f
-        })
-    }
-
-    private fun card(bg: Int = CARD) = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(16), dp(12), dp(16), dp(12))
-        background = GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setColor(bg) }
-        layoutParams = LinearLayout.LayoutParams(MATCH, WRAP)
-    }
-
-    private fun label(s: String) = TextView(this).apply { text = s; setTextColor(MUTED); textSize = 13f }
-    private fun space(h: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(MATCH, h) }
-    private fun eq() = LinearLayout.LayoutParams(0, WRAP, 1f)
-    private fun dp(v: Int) = (v * d).toInt()
 
     private companion object {
         const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
         const val BG = 0xFF0E1420.toInt()
-        const val CARD = 0xFF19202E.toInt()
         const val ACCENT_CARD = 0xFF13261C.toInt()
         const val WHITE = 0xFFE6EDF5.toInt()
         const val MUTED = 0xFF8A97AD.toInt()
         const val ACCENT = 0xFF39D98A.toInt()
-        const val GOOD = 0xFF39D98A.toInt()
-        const val MID = 0xFFFFC14D.toInt()
-        const val HIGH = 0xFFFF6B6B.toInt()
     }
 }

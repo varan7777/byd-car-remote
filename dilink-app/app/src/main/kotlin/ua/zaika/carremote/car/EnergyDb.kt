@@ -30,7 +30,9 @@ object EnergyDb {
 
     fun available(): Boolean = CANDIDATES.any { File(it).canRead() }
 
-    fun trips(context: Context, limit: Int = 1000): List<EcTrip> {
+    /** Every recorded session (not just real drives), newest first — nothing filtered or
+     *  capped, so totals reflect all energy used (including idle/precondition sessions). */
+    fun trips(context: Context): List<EcTrip> {
         val src = CANDIDATES.map(::File).firstOrNull { it.canRead() } ?: return emptyList()
         val copy = File(context.cacheDir, "EC_database.db")
         return try {
@@ -39,8 +41,8 @@ object EnergyDb {
                 val out = ArrayList<EcTrip>()
                 db.rawQuery(
                     "SELECT start_timestamp,end_timestamp,trip,electricity,fuel FROM EnergyConsumption " +
-                        "WHERE is_deleted=0 AND trip>=0.3 ORDER BY start_timestamp DESC LIMIT ?",
-                    arrayOf(limit.toString()),
+                        "WHERE is_deleted=0 ORDER BY start_timestamp DESC",
+                    null,
                 ).use { c ->
                     while (c.moveToNext()) {
                         out.add(
