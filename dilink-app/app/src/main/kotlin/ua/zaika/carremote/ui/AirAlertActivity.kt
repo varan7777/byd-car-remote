@@ -30,7 +30,6 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.CopyrightOverlay
 import org.osmdroid.views.overlay.Polygon
-import org.osmdroid.views.overlay.TilesOverlay
 import ua.zaika.carremote.CarRemoteService
 import ua.zaika.carremote.air.AirState
 import ua.zaika.carremote.air.Geo
@@ -82,13 +81,15 @@ class AirAlertActivity : Activity() {
         }
 
         map = MapView(this).apply {
+            // Standard OpenStreetMap — normal, fully-labelled colours, no key. (We tried an
+            // inverted "dark" look, but inversion turns greens purple; CARTO's dark tiles now
+            // require an API key, so plain OSM is the reliable, natural-looking choice.)
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)      // pinch zoom
             setUseDataConnection(true)
             controller.setZoom(11.0)         // ~city/district level
             controller.setCenter(GeoPoint(49.0, 31.5)) // Ukraine, until the first GPS fix
-            overlayManager.tilesOverlay.setColorFilter(TilesOverlay.INVERT_COLORS) // dark map
-            overlays.add(CopyrightOverlay(this@AirAlertActivity)) // "© OpenStreetMap contributors"
+            overlays.add(CopyrightOverlay(this@AirAlertActivity)) // OSM + CARTO attribution
             overlays.add(threatsOverlay)
         }
 
@@ -139,10 +140,15 @@ class AirAlertActivity : Activity() {
     override fun onResume() {
         super.onResume()
         map.onResume()
-        // Render whatever the service has published; refresh a few times a second so the map
-        // tracks each NEPTUN poll without running a second monitor of our own.
+        // Pull the service's latest state every ~2 s, but redraw ~2.5×/s in between so the
+        // dead-reckoned threat markers glide instead of jumping once per NEPTUN poll.
         job = ui.launch {
-            while (isActive) { render(CarRemoteService.airState); delay(2_000) }
+            var tick = 0
+            while (isActive) {
+                if (tick % 5 == 0) render(CarRemoteService.airState) else map.invalidate()
+                tick++
+                delay(400)
+            }
         }
         ui.launch {
             allShapes = withContext(Dispatchers.IO) { regions.shapes() }

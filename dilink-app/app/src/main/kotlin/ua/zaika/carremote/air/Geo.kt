@@ -36,6 +36,18 @@ object Geo {
     /** Smallest absolute difference between two headings, 0..180. */
     fun angleDiff(a: Double, b: Double): Double = abs((a - b + 540) % 360 - 180)
 
+    /** Destination point reached from (lat,lon) going [bearingDeg] for [distKm] (great-circle). */
+    fun dest(lat: Double, lon: Double, bearingDeg: Double, distKm: Double): Pair<Double, Double> {
+        val r = 6371.0
+        val d = distKm / r
+        val br = Math.toRadians(bearingDeg)
+        val lat1 = Math.toRadians(lat)
+        val lon1 = Math.toRadians(lon)
+        val lat2 = asin(sin(lat1) * cos(d) + cos(lat1) * sin(d) * cos(br))
+        val lon2 = lon1 + atan2(sin(br) * sin(d) * cos(lat1), cos(d) - sin(lat1) * sin(lat2))
+        return Math.toDegrees(lat2) to Math.toDegrees(lon2)
+    }
+
     private val COMPASS = listOf("Пн", "ПнСх", "Сх", "ПдСх", "Пд", "ПдЗх", "Зх", "ПнЗх")
     fun compass(deg: Double): String = COMPASS[((((deg % 360) + 360) % 360) / 45.0).roundToInt() % 8]
 
