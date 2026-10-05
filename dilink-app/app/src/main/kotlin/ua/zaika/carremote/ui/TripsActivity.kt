@@ -14,6 +14,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import ua.zaika.carremote.CarRemoteService
+import ua.zaika.carremote.car.CarSnapshot
 import ua.zaika.carremote.car.EcTrip
 import ua.zaika.carremote.car.EnergyDb
 import java.text.SimpleDateFormat
@@ -52,7 +53,10 @@ class TripsActivity : Activity() {
                 setTextColor(MUTED); textSize = 15f; setPadding(dp(8), dp(8), dp(8), dp(8))
             })
         } else {
-            root.addView(summary(trips, tariff, cur))
+            lifetimeCard(CarRemoteService.lastSnapshot, tariff, cur)?.let {
+                root.addView(it); root.addView(gap())
+            }
+            root.addView(loggedCard(trips, tariff, cur))
             root.addView(RecyclerView(this).apply {
                 layoutManager = LinearLayoutManager(this@TripsActivity)
                 adapter = TripAdapter(trips, tariff, cur, dens)
@@ -63,40 +67,56 @@ class TripsActivity : Activity() {
         setContentView(root)
     }
 
-    private fun summary(trips: List<EcTrip>, tariff: Double?, cur: String): View {
+    private fun n(x: Double) = "%,.0f".format(x).replace(",", " ")
+
+    /** Lifetime (BMS) totals from the car's own counters — matches "Прокачано всього". */
+    private fun lifetimeCard(snap: CarSnapshot?, tariff: Double?, cur: String): View? {
+        val kwh = snap?.lifetimeKwh?.toDouble()?.takeIf { it > 0 } ?: return null
+        val km = snap.mileageKm?.toDouble()?.takeIf { it > 0 } ?: return null
+        val stats = ArrayList<Pair<String, String>>()
+        stats += n(km) to "км"
+        stats += n(kwh) to "кВт·год"
+        stats += "%.1f".format(kwh / km * 100) to "кВт·год/100"
+        tariff?.let { stats += n(kwh * it) to cur }
+        return statsCard("ЗА ВЕСЬ ЧАС · BMS", ACCENT, ACCENT_CARD, stats)
+    }
+
+    /** Totals from the car's trip log (only since its earliest record). */
+    private fun loggedCard(trips: List<EcTrip>, tariff: Double?, cur: String): View {
         val km = trips.sumOf { it.km }
         val kwh = trips.sumOf { it.kwh }
-        val per100 = if (km >= 1) kwh / km * 100 else null
-        val cost = tariff?.let { kwh * it }
-        fun n(x: Double) = "%,.0f".format(x).replace(",", " ")
-        val stats = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        fun stat(value: String, unit: String) = LinearLayout(this).apply {
+        val stats = ArrayList<Pair<String, String>>()
+        stats += n(km) to "км"
+        stats += n(kwh) to "кВт·год"
+        stats += (if (km >= 1) "%.1f".format(kwh / km * 100) else "—") to "кВт·год/100"
+        tariff?.let { stats += n(kwh * it) to cur }
+        val since = trips.minOfOrNull { it.startMs }?.let {
+            " · з " + SimpleDateFormat("dd.MM.yyyy", Locale("uk")).format(Date(it))
+        } ?: ""
+        return statsCard("ЖУРНАЛ · ${trips.size}$since", MUTED, CARD, stats)
+    }
+
+    private fun statsCard(title: String, titleColor: Int, bg: Int, stats: List<Pair<String, String>>): View {
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for ((value, unit) in stats) row.addView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(TextView(this@TripsActivity).apply {
                 text = value; setTextColor(WHITE); textSize = 18f; typeface = Typeface.DEFAULT_BOLD
             })
             addView(TextView(this@TripsActivity).apply { text = unit; setTextColor(MUTED); textSize = 11f })
-        }
-        stats.addView(stat(n(km), "км"), LinearLayout.LayoutParams(0, WRAP, 1f))
-        stats.addView(stat(n(kwh), "кВт·год"), LinearLayout.LayoutParams(0, WRAP, 1f))
-        stats.addView(stat(per100?.let { "%.1f".format(it) } ?: "—", "кВт·год/100"), LinearLayout.LayoutParams(0, WRAP, 1f))
-        if (cost != null) stats.addView(stat(n(cost), cur), LinearLayout.LayoutParams(0, WRAP, 1f))
-        val since = trips.minOfOrNull { it.startMs }?.let {
-            " · з " + SimpleDateFormat("dd.MM.yyyy", Locale("uk")).format(Date(it))
-        } ?: ""
+        }, LinearLayout.LayoutParams(0, WRAP, 1f))
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(10), dp(14), dp(12))
-            background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(ACCENT_CARD) }
+            background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(bg) }
             addView(TextView(this@TripsActivity).apply {
-                // The car's energy log is not lifetime — it starts from the earliest record here,
-                // so this total is less than the odometer. Show the start date to make that clear.
-                text = "УСЬОГО · ${trips.size} поїздок$since"
-                setTextColor(ACCENT); textSize = 12f; setPadding(0, 0, 0, dp(6))
+                text = title; setTextColor(titleColor); textSize = 12f; setPadding(0, 0, 0, dp(6))
             })
-            addView(stats)
+            addView(row)
         }
     }
+
+    private fun gap() = View(this).apply { layoutParams = LinearLayout.LayoutParams(MATCH, dp(8)) }
 
     private class TripAdapter(
         val items: List<EcTrip>, val tariff: Double?, val cur: String, val d: Float,
@@ -167,6 +187,7 @@ class TripsActivity : Activity() {
         const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
         const val BG = 0xFF0E1420.toInt()
         const val ACCENT_CARD = 0xFF13261C.toInt()
+        const val CARD = 0xFF19202E.toInt()
         const val WHITE = 0xFFE6EDF5.toInt()
         const val MUTED = 0xFF8A97AD.toInt()
         const val ACCENT = 0xFF39D98A.toInt()

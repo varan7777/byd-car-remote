@@ -99,6 +99,7 @@ class CarRemoteService : Service() {
             while (isActive) {
                 if (car.isReachable()) {
                     CarSnapshot.read(car)?.let { snap ->
+                        lastSnapshot = snap // cached for the Trips screen's lifetime totals
                         if (!tripStarted) { tripLog.onStart(snap); tripStarted = true }
                         tripLog.onUpdate(snap)
                     }
@@ -326,6 +327,9 @@ class CarRemoteService : Service() {
 
         // Latest air situation from the service's NEPTUN watch, for the screens to render.
         @Volatile var airState: AirState? = null
+
+        // Latest car reading, so the Trips screen can show lifetime (BMS) totals.
+        @Volatile var lastSnapshot: CarSnapshot? = null
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, CarRemoteService::class.java))
