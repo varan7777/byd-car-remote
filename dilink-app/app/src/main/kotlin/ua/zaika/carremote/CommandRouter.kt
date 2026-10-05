@@ -114,9 +114,11 @@ class CommandRouter(
     /** Seat heating is two writes to turn on (switch + level); its status fid confirms it. */
     private fun toggleSeat(who: String, switchFid: Int, levelFid: Int, readFid: Int): Reply {
         if (!car.isReachable()) return Reply(noAdb())
+        // Only turn OFF when the status fid confirms it is on; if the state can't be read
+        // (likely a wrong read fid for this car), fall through to turning it ON rather than
+        // doing nothing, so the command at least actuates.
         val level = car.getInt(Fids.DEV_CLIMATE, readFid)
-            ?: return Reply("Не вдалося прочитати стан сидіння $who.")
-        if (level > 0) {
+        if (level != null && level > 0) {
             car.write(Fids.DEV_CLIMATE, switchFid, 2) // off
             Thread.sleep(SETTLE_MS)
             return Reply("🪑 Підігрів $who: вимкнено")
@@ -126,8 +128,11 @@ class CommandRouter(
         Thread.sleep(SETTLE_MS)
         val now = car.getInt(Fids.DEV_CLIMATE, readFid)
         return Reply(
-            if (now != null && now > 0) "🔥 Підігрів $who: увімкнено (рівень $now)"
-            else "⚠️ Підігрів $who: надіслано, підтвердження немає (стан=$now).",
+            when {
+                now != null && now > 0 -> "🔥 Підігрів $who: увімкнено (рівень $now)"
+                now != null -> "⚠️ Підігрів $who: надіслано, підтвердження немає (стан=$now)."
+                else -> "➡️ Підігрів $who: надіслано (стан не читається — можливо, інший FID на цьому авто)."
+            },
         )
     }
 
