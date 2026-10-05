@@ -6,7 +6,10 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.location.LocationManager
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.IBinder
 import android.os.PowerManager
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +20,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import ua.zaika.carremote.adb.AdbShell
+import ua.zaika.carremote.air.AirAlertMonitor
+import ua.zaika.carremote.air.AirState
+import ua.zaika.carremote.air.Speaker
 import ua.zaika.carremote.car.Autoservice
 import ua.zaika.carremote.car.CarSnapshot
 import ua.zaika.carremote.car.Fids
@@ -37,12 +43,21 @@ class CarRemoteService : Service() {
     private lateinit var adb: AdbShell
     private var wakeLock: PowerManager.WakeLock? = null
 
+    // Air-raid / UAV watch (NEPTUN). Runs here so the siren sounds over any foreground app.
+    private var airTone: ToneGenerator? = null
+    private var airSpeaker: Speaker? = null
+    private var airAlarmActive = false
+    private var prefsListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
+
     override fun onCreate() {
         super.onCreate()
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "Car Remote", NotificationManager.IMPORTANCE_LOW)
         )
         startForeground(NOTIFICATION_ID, notification("Запуск…"))
+
+        // Air-raid watch is independent of Telegram/ADB, so start it before any of that.
+        startAirMonitor()
 
         adb = AdbShell(this)
         val car = Autoservice(adb)
@@ -150,6 +165,31 @@ class CarRemoteService : Service() {
         }
     }
 
+    /**
+     * Watch NEPTUN for air threats near the car and raise an audible + spoken alarm, no matter
+     * which app is on screen. The latest state is published for the dashboard and map to show.
+     */
+    private fun startAirMonitor() {
+        val prefs = getSharedPreferences("carremote", Context.MODE_PRIVATE)
+        airTone = runCatching { ToneGenerator(AudioManager.STREAM_ALARM, 100) }.getOrNull()
+        airSpeaker = Speaker(this)
+        val monitor = AirAlertMonitor(applicationContext, radiusKm = prefs.getInt(KEY_RADIUS, DEFAULT_RADIUS).toDouble())
+        // Live-apply radius changes from the settings screen (keep a strong ref: prefs listeners are weak).
+        prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { p, key ->
+            if (key == KEY_RADIUS) monitor.radiusKm = p.getInt(KEY_RADIUS, DEFAULT_RADIUS).toDouble()
+        }.also { prefs.registerOnSharedPreferenceChangeListener(it) }
+        scope.launch {
+            monitor.run { state ->
+                airState = state
+                if (state.isAlarm && !airAlarmActive) {
+                    airTone?.let { t -> scope.launch { repeat(4) { t.startTone(ToneGenerator.TONE_PROP_BEEP2, 300); delay(400) } } }
+                    if (prefs.getBoolean(KEY_VOICE, true)) airSpeaker?.speak(state.voiceAlert())
+                }
+                airAlarmActive = state.isAlarm
+            }
+        }
+    }
+
     /** Most recent GPS fix from the head unit, or null if unavailable / no permission. */
     private fun readLocation(): Pair<Double, Double>? = try {
         val lm = getSystemService(LocationManager::class.java)
@@ -166,6 +206,11 @@ class CarRemoteService : Service() {
     override fun onDestroy() {
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
+        prefsListener?.let {
+            getSharedPreferences("carremote", Context.MODE_PRIVATE).unregisterOnSharedPreferenceChangeListener(it)
+        }
+        airTone?.release(); airTone = null
+        airSpeaker?.shutdown(); airSpeaker = null
         scope.cancel()
         adb.close()
         telegramStatus = "Сервіс зупинено"
@@ -194,11 +239,19 @@ class CarRemoteService : Service() {
         private const val KEY_KEEP_AWAKE = "keep_awake"
         private const val KEEP_AWAKE_MIN_SOC = 15f // auto-off below this charge to protect the pack
 
+        // Air-watch settings (shared with the dashboard/map screens via SharedPreferences).
+        const val KEY_RADIUS = "air_radius_km"
+        const val KEY_VOICE = "air_voice"
+        const val DEFAULT_RADIUS = 40
+
         // Read by the status screen.
         @Volatile var adbStatus = "ADB: ще не перевірено"
             private set
         @Volatile var telegramStatus = "Сервіс не запущено"
             private set
+
+        // Latest air situation from the service's NEPTUN watch, for the screens to render.
+        @Volatile var airState: AirState? = null
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, CarRemoteService::class.java))

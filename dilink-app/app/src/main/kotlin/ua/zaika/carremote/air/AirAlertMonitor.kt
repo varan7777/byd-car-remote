@@ -74,7 +74,7 @@ data class AirState(
  */
 class AirAlertMonitor(
     private val context: Context,
-    val radiusKm: Double = 40.0,
+    @Volatile var radiusKm: Double = 40.0,
     private val periodMs: Long = 10_000,
     private val client: NeptunClient = NeptunClient(),
     private val regions: RegionLocator = RegionLocator(context),
