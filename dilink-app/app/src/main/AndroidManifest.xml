@@ -38,6 +38,11 @@
             android:label="Поїздки"
             android:exported="false" />
 
+        <activity
+            android:name=".ui.SettingsActivity"
+            android:label="Налаштування"
+            android:exported="false" />
+
         <!-- Invisible revive entry for the watchdog: transparent, starts the service, finishes. -->
         <activity
             android:name=".BootstrapActivity"

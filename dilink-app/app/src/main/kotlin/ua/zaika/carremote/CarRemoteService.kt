@@ -26,6 +26,7 @@ import ua.zaika.carremote.adb.AdbShell
 import ua.zaika.carremote.air.AirAlertMonitor
 import ua.zaika.carremote.air.AirState
 import ua.zaika.carremote.air.Speaker
+import ua.zaika.carremote.car.Automations
 import ua.zaika.carremote.car.Autoservice
 import ua.zaika.carremote.car.CarSnapshot
 import ua.zaika.carremote.car.Fids
@@ -156,6 +157,7 @@ class CarRemoteService : Service() {
         if (owner != 0L) {
             val notifier = Notifier(car) { router.lowSoc() }
             val trip = TripTracker()
+            val autos = Automations()
             scope.launch {
                 var ticks = 0
                 while (isActive) {
@@ -165,6 +167,9 @@ class CarRemoteService : Service() {
                         // and respawn the watchdog if it died.
                         CarSnapshot.read(car)?.let { snap ->
                             trip.baselineIfNeeded(snap)
+                            if (prefs.getBoolean(KEY_AUTOMATIONS, true)) {
+                                for (m in autos.poll(snap)) runCatching { bot.send(owner, m) }
+                            }
                             val loc = readLocation()
                             val map = loc?.let { "\n📍 https://maps.google.com/?q=${it.first},${it.second}" } ?: ""
                             val body = ShutdownReport.body(snap) + (trip.line(snap)?.let { "\n$it" } ?: "") + map
@@ -302,6 +307,7 @@ class CarRemoteService : Service() {
         const val KEY_RADIUS = "air_radius_km"
         const val KEY_VOICE = "air_voice"
         const val KEY_WIDGET = "widget"
+        const val KEY_AUTOMATIONS = "automations"
         const val DEFAULT_RADIUS = 40
         const val ACTION_TEST = "ua.zaika.carremote.action.AIR_TEST"
 

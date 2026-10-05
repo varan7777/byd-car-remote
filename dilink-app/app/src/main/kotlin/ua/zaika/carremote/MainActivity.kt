@@ -4,13 +4,10 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
-import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.Switch
 import android.widget.TextView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,6 +24,7 @@ import ua.zaika.carremote.car.Autoservice
 import ua.zaika.carremote.car.CarSnapshot
 import ua.zaika.carremote.ui.AirAlertActivity
 import ua.zaika.carremote.ui.DashboardView
+import ua.zaika.carremote.ui.SettingsActivity
 import ua.zaika.carremote.ui.TripsActivity
 
 /** Live dashboard on the head unit. The remote itself runs in [CarRemoteService] + Telegram. */
@@ -66,37 +64,15 @@ class MainActivity : Activity() {
             text = "📈 Поїздки"
             setOnClickListener { startActivity(Intent(this@MainActivity, TripsActivity::class.java)) }
         }
+        val settingsButton = Button(this).apply {
+            text = "⚙"
+            setOnClickListener { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) }
+        }
         val actionsRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(airButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 2f))
-            addView(tripsButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        }
-
-        val keepAwake = Switch(this).apply {
-            text = "🅿️  Доступність на стоянці (тримати на зв'язку)"
-            setTextColor(Color.WHITE)
-            textSize = 16f
-            isChecked = prefs.getBoolean("keep_awake", false)
-            setPadding(dp(16), dp(10), dp(16), dp(10))
-            setOnCheckedChangeListener { _, checked -> prefs.edit().putBoolean("keep_awake", checked).apply() }
-        }
-        val widgetSwitch = Switch(this).apply {
-            text = "📟  Плаваючий віджет (поверх усього)"
-            setTextColor(Color.WHITE)
-            textSize = 16f
-            isChecked = prefs.getBoolean(CarRemoteService.KEY_WIDGET, false)
-            setPadding(dp(16), dp(10), dp(16), dp(10))
-            setOnCheckedChangeListener { _, checked ->
-                // Overlay needs the one-time "draw over other apps" grant; open Settings if missing.
-                if (checked && !Settings.canDrawOverlays(this@MainActivity)) {
-                    runCatching {
-                        startActivity(
-                            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")),
-                        )
-                    }
-                }
-                prefs.edit().putBoolean(CarRemoteService.KEY_WIDGET, checked).apply()
-            }
+            addView(airButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 3f))
+            addView(tripsButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 2f))
+            addView(settingsButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         }
 
         setContentView(LinearLayout(this).apply {
@@ -105,8 +81,6 @@ class MainActivity : Activity() {
             addView(dashboard, LinearLayout.LayoutParams(MATCH, 0, 1f))
             addView(airLine)
             addView(actionsRow)
-            addView(keepAwake)
-            addView(widgetSwitch)
             addView(statusLine)
         })
 
