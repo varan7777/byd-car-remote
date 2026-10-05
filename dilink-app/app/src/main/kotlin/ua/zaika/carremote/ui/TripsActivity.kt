@@ -81,12 +81,18 @@ class TripsActivity : Activity() {
         stats.addView(stat(n(kwh), "кВт·год"), LinearLayout.LayoutParams(0, WRAP, 1f))
         stats.addView(stat(per100?.let { "%.1f".format(it) } ?: "—", "кВт·год/100"), LinearLayout.LayoutParams(0, WRAP, 1f))
         if (cost != null) stats.addView(stat(n(cost), cur), LinearLayout.LayoutParams(0, WRAP, 1f))
+        val since = trips.minOfOrNull { it.startMs }?.let {
+            " · з " + SimpleDateFormat("dd.MM.yyyy", Locale("uk")).format(Date(it))
+        } ?: ""
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(10), dp(14), dp(12))
             background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(ACCENT_CARD) }
             addView(TextView(this@TripsActivity).apply {
-                text = "УСЬОГО · ${trips.size}"; setTextColor(ACCENT); textSize = 12f; setPadding(0, 0, 0, dp(6))
+                // The car's energy log is not lifetime — it starts from the earliest record here,
+                // so this total is less than the odometer. Show the start date to make that clear.
+                text = "УСЬОГО · ${trips.size} поїздок$since"
+                setTextColor(ACCENT); textSize = 12f; setPadding(0, 0, 0, dp(6))
             })
             addView(stats)
         }
