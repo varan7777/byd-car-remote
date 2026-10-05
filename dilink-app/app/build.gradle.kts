@@ -21,8 +21,8 @@ android {
         // DiLink 4.0 runs Android 10 (API 29). Staying on 29 avoids the newer
         // background-start and foreground-service-type restrictions.
         targetSdk = 29
-        versionCode = 43
-        versionName = "0.17.5"
+        versionCode = 44
+        versionName = "0.17.6"
 
         ndk { abiFilters += "arm64-v8a" }
 
