@@ -87,25 +87,19 @@ class AirAlertActivity : Activity() {
 
         banner = TextView(this).apply {
             setTextColor(Color.WHITE)
-            setBackgroundColor(0xCC0E1420.toInt())
-            textSize = 17f
-            setPadding(dp(16), dp(12), dp(16), dp(12))
+            textSize = 14f; typeface = sfSemibold
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            background = rounded(0xE6101418.toInt(), 14)
             text = "Завантаження повітряної обстановки…"
         }
 
-        val recenter = Button(this).apply {
-            text = "📍 Моє місце"
-            setOnClickListener { recenter() }
-        }
-        val gear = Button(this).apply {
-            text = "⚙"
-            setOnClickListener {
-                settingsPanel.visibility = if (settingsPanel.visibility == View.GONE) View.VISIBLE else View.GONE
-            }
+        val recenter = filledPill("📍 Моє місце", Ui.BLUE) { recenter() }
+        val gear = filledPill("⚙", 0xE62C2C2E.toInt()) {
+            settingsPanel.visibility = if (settingsPanel.visibility == View.GONE) View.VISIBLE else View.GONE
         }
         val buttons = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(gear)
+            addView(gear, LinearLayout.LayoutParams(WRAP, WRAP).apply { setMargins(0, 0, dp(8), 0) })
             addView(recenter)
         }
 
@@ -114,7 +108,7 @@ class AirAlertActivity : Activity() {
         setContentView(FrameLayout(this).apply {
             setBackgroundColor(Color.parseColor("#0E1420"))
             addView(map, FrameLayout.LayoutParams(MATCH, MATCH))
-            addView(banner, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP))
+            addView(banner, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP).apply { setMargins(dp(10), dp(10), dp(10), 0) })
             addView(settingsPanel, FrameLayout.LayoutParams(dp(300), WRAP, Gravity.TOP or Gravity.END).apply {
                 setMargins(0, dp(64), dp(12), 0)
             })
@@ -159,13 +153,14 @@ class AirAlertActivity : Activity() {
         if (s == null) return
         val radius = prefs.getInt(CarRemoteService.KEY_RADIUS, CarRemoteService.DEFAULT_RADIUS).toDouble()
         banner.text = s.bannerText(radius)
-        banner.setBackgroundColor(
-            when {
-                s.isAlarm -> 0xE6B3261E.toInt()
-                s.error != null -> 0xE6704000.toInt()
-                else -> 0xCC12351F.toInt()
-            }
-        )
+        // Red: air-raid in our oblast or a threat within radius. Amber: threats but far. Green: clear.
+        val c = when {
+            s.oblastAlert != null || s.within.isNotEmpty() -> 0xF0B3261E.toInt()
+            s.nearest != null -> 0xF0B26B00.toInt()
+            s.error != null -> 0xE6704000.toInt()
+            else -> 0xF01C4A2E.toInt()
+        }
+        (banner.background as? android.graphics.drawable.GradientDrawable)?.setColor(c) ?: banner.setBackgroundColor(c)
         threatsOverlay.threats = s.all
         threatsOverlay.car = s.fix
         if (!centered && s.fix != null) {
@@ -199,8 +194,9 @@ class AirAlertActivity : Activity() {
 
     private fun buildSettingsPanel(): LinearLayout {
         val current = prefs.getInt(CarRemoteService.KEY_RADIUS, CarRemoteService.DEFAULT_RADIUS)
+        val txt = Ui.textc(this)
         radiusLabel = TextView(this).apply {
-            setTextColor(Color.WHITE); textSize = 15f
+            setTextColor(txt); textSize = 15f; typeface = sfSemibold
             text = "Радіус тривоги: $current км"
         }
         val slider = SeekBar(this).apply {
@@ -217,18 +213,21 @@ class AirAlertActivity : Activity() {
             })
         }
         val voice = Switch(this).apply {
-            text = "Голос тривоги"; setTextColor(Color.WHITE); textSize = 15f
+            text = "Голос тривоги"; setTextColor(txt); textSize = 15f; typeface = sf
             isChecked = prefs.getBoolean(CarRemoteService.KEY_VOICE, true)
-            setOnCheckedChangeListener { _, on -> prefs.edit().putBoolean(CarRemoteService.KEY_VOICE, on).apply() }
+            val off = if (Ui.isLight(this@AirAlertActivity)) 0xFFE4E4E6.toInt() else 0xFF3A3A3C.toInt()
+            thumbTintList = android.content.res.ColorStateList.valueOf(0xFFFFFFFF.toInt())
+            trackTintList = android.content.res.ColorStateList.valueOf(if (isChecked) Ui.GREEN else off)
+            setOnCheckedChangeListener { _, on ->
+                prefs.edit().putBoolean(CarRemoteService.KEY_VOICE, on).apply()
+                trackTintList = android.content.res.ColorStateList.valueOf(if (on) Ui.GREEN else off)
+            }
         }
-        val test = Button(this).apply {
-            text = "🔊 Перевірити сигнал"
-            setOnClickListener { CarRemoteService.testAlarm(this@AirAlertActivity) }
-        }
+        val test = filledPill("🔊 Перевірити сигнал", Ui.BLUE) { CarRemoteService.testAlarm(this@AirAlertActivity) }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
-            setBackgroundColor(0xF01A2130.toInt())
+            background = rounded(if (Ui.isLight(this@AirAlertActivity)) 0xF6FFFFFF.toInt() else 0xF21C1C1E.toInt(), 16)
             setPadding(dp(16), dp(14), dp(16), dp(14))
             addView(radiusLabel)
             addView(slider)

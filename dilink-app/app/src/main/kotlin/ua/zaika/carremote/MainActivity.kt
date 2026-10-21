@@ -33,6 +33,7 @@ import ua.zaika.carremote.ui.dpv
 import ua.zaika.carremote.ui.filledPill
 import ua.zaika.carremote.ui.rounded
 import ua.zaika.carremote.ui.sf
+import ua.zaika.carremote.ui.sfSemibold
 import ua.zaika.carremote.ui.tintedPill
 
 /** Live dashboard on the head unit. The remote itself runs in [CarRemoteService] + Telegram. */
@@ -58,10 +59,10 @@ class MainActivity : Activity() {
             setPadding(dpv(18), dpv(6), dpv(18), dpv(10))
         }
         airLine = TextView(this).apply {
-            setTextColor(Ui.textc(context)); textSize = 15f; typeface = sf
-            setPadding(dpv(16), dpv(12), dpv(16), dpv(12))
+            setTextColor(Ui.textc(context)); textSize = 13f; typeface = sfSemibold
+            setPadding(dpv(14), dpv(7), dpv(14), dpv(7))
             text = "🛰️ Повітряна обстановка: завантаження…"
-            background = rounded(Ui.card(context), 16)
+            background = rounded(Ui.card(context), 12)
             setOnClickListener { openAirMap() }
         }
 
@@ -116,13 +117,18 @@ class MainActivity : Activity() {
         val radius = prefs.getInt(CarRemoteService.KEY_RADIUS, CarRemoteService.DEFAULT_RADIUS).toDouble()
         airLine.text = s.oneLine(radius)
         val light = Ui.isLight(this)
-        val c = when {
-            s.isAlarm -> if (light) 0xFFFFE1E0.toInt() else 0xFF3A1113.toInt()
-            s.error != null -> if (light) 0xFFFFF1DC.toInt() else 0xFF2A2012.toInt()
-            else -> Ui.card(this)
+        // Red: active air-raid in our oblast, or a threat inside the radius. Yellow: threats exist
+        // but far. Green: clear. Grey: no data / error.
+        val red = s.oblastAlert != null || s.within.isNotEmpty()
+        val yellow = !red && s.nearest != null
+        val (bg, fg) = when {
+            red -> (if (light) 0xFFFFDAD6.toInt() else 0xFF4A1512.toInt()) to Ui.RED
+            yellow -> (if (light) 0xFFFFF0C2.toInt() else 0xFF3A2E0C.toInt()) to Ui.ORANGE
+            s.error != null -> Ui.card(this) to Ui.text2c(this)
+            else -> (if (light) 0xFFDDF3E2.toInt() else 0xFF13251A.toInt()) to Ui.GREEN
         }
-        airLine.setTextColor(if (s.isAlarm && !light) Ui.TEXT else Ui.textc(this))
-        (airLine.background as? GradientDrawable)?.setColor(c) ?: airLine.setBackgroundColor(c)
+        airLine.setTextColor(fg)
+        (airLine.background as? GradientDrawable)?.setColor(bg) ?: airLine.setBackgroundColor(bg)
     }
 
     /** One-shot cabin air purification (verified on this car: status flips 0→1). */
