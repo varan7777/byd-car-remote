@@ -44,6 +44,14 @@ object Controls {
     val DEFROST_ON = Control("defrost_on", "🌬 Обігрів скла", Fids.DEV_CLIMATE, 501219357, 1)
     val DEFROST_OFF = Control("defrost_off", "⭕ Обігрів скла вимк.", Fids.DEV_CLIMATE, 501219357, 0)
 
+    // Air purification — a one-shot "clean now" cycle. Verified on this Song Plus: the write
+    // flips QUICK_CLEAN_AIR 0→1 and the cabin fan runs a purification cycle. Hidden from the
+    // factory UI on this car but fully functional via autoservice.
+    val CLEAN_AIR = Control(
+        "clean_air", "🌬 Очистити повітря", Fids.DEV_CLIMATE, Fids.QUICK_CLEAN_AIR_SET, 1,
+        verify = Control.Verify(Fids.DEV_CLIMATE, Fids.QUICK_CLEAN_AIR, 1),
+    )
+
     // Moving parts — gated to Park.
     val SUNROOF_OPEN = Control("sunroof_open", "☀️ Люк відкрити", Fids.DEV_BODYWORK, Fids.SUNROOF_CTRL, 1, needsPark = true)
     val SUNROOF_CLOSE = Control("sunroof_close", "☀️ Люк закрити", Fids.DEV_BODYWORK, Fids.SUNROOF_CTRL, 2, needsPark = true)
@@ -60,6 +68,6 @@ object Controls {
 
     val byId: Map<String, Control> = listOf(
         CLIMATE_ON, CLIMATE_OFF, LOCK, UNLOCK, DEFROST_ON, DEFROST_OFF,
-        SUNROOF_OPEN, SUNROOF_CLOSE, TRUNK_OPEN, TRUNK_CLOSE,
+        SUNROOF_OPEN, SUNROOF_CLOSE, TRUNK_OPEN, TRUNK_CLOSE, CLEAN_AIR,
     ).associateBy { it.id }
 }

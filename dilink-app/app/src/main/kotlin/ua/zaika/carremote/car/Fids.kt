@@ -83,4 +83,15 @@ object Fids {
     // a turn-signal test. One stable mask, not two separate flashing boolean addresses.
     const val TURN_DEV = DEV_LIGHTS
     const val TURN_MASK = 950009900 // 1=off, 2=left, 4=right, 6=hazard
+
+    // Air quality & purification. The PM2.5 sensor is its own device (BYDAUTO_DEVICE_PM2P5).
+    // Verified live on this Song Plus (2026-10-21): sensor answers, and writing
+    // QUICK_CLEAN_AIR_SET=1 flips the status 0→1 (a real clean cycle, unlike seat heat).
+    // Hidden from this car's factory UI but present in the system.
+    const val DEV_PM25 = 1008
+    const val PM25_VALUE_IN = 1331691536       // int: cabin PM2.5 (reads 0 when clean)
+    const val PM25_VALUE_OUT = 1331691548      // int: outside PM2.5
+    const val PM25_ONLINE = 1331691520         // int: sensor state (2 = online here)
+    const val QUICK_CLEAN_AIR = 1033895944     // dev 1000, int status: 1 = cleaning
+    const val QUICK_CLEAN_AIR_SET = 1330642960 // dev 1000, write 1 = start a clean cycle
 }
