@@ -40,17 +40,14 @@
 
 > ℹ️ Частина функцій керування залежить від версії DiLink і комплектації авто — якщо адреса не підтримується, функція просто не спрацює (без шкоди).
 
-### 🔒 Приватність — «своє авто, свій бот»
-Додаток на твоєму авто спілкується **напряму з твоїм Telegram‑ботом** — без сервера й хмари.
-Кожен користувач створює **власного бота** → ніхто не бачить і не керує чужим авто. Твоє авто ↔ твій бот ↔ твій телефон.
+### 🔒 Приватність — «кожному своє авто»
+Керування йде через бота **[@Varanbyd_bot](https://t.me/Varanbyd_bot)**. Своє авто ти **привʼязуєш кодом** — і бачиш та керуєш **лише ним**. Ніхто не має доступу до чужого авто.
 
 ### ⚙️ Встановлення
 1. **Увімкни ADB** на голові (Налаштування → для розробників → бездротове налагодження).
-2. Створи безкоштовного бота в **[@BotFather](https://t.me/BotFather)** → скопіюй **токен**. Дізнайся свій **chat id** (напр. через @userinfobot).
-3. Впиши токен і chat id у `secrets.properties` та збери APK (або завантаж готовий APK нижче й онови через ADB).
-4. **[⬇ Завантажити APK](../../releases/latest)** → встанови на голову.
-
-> ☁️ *Альтернатива:* один спільний бот для багатьох користувачів потребує окремого сервера (привʼязка по коду, маршрутизація). Це вже не локальний режим.
+2. **[⬇ Завантаж APK](../../releases/latest)** і встанови на голову.
+3. Відкрий **[@Varanbyd_bot](https://t.me/Varanbyd_bot)** у Telegram → **привʼяжи авто кодом**.
+4. Готово — керуй своїм авто з телефону й з екрана голови.
 
 ---
 
@@ -71,17 +68,14 @@
 
 > ℹ️ Some control functions depend on the DiLink version and trim — an unsupported address simply does nothing (safe).
 
-### 🔒 Privacy — “your car, your bot”
-The app on your car talks **directly to your own Telegram bot** — no server, no cloud.
-Each user creates **their own bot**, so no one can see or control anyone else’s car. Your car ↔ your bot ↔ your phone.
+### 🔒 Privacy — “each to their own car”
+Control runs through the **[@Varanbyd_bot](https://t.me/Varanbyd_bot)** bot. You **pair your car with a code** and can see and control **only it** — no one has access to anyone else’s car.
 
 ### ⚙️ Setup
 1. **Enable ADB** on the head unit (Developer options → wireless debugging).
-2. Create a free bot in **[@BotFather](https://t.me/BotFather)** → copy the **token**. Get your **chat id** (e.g. via @userinfobot).
-3. Put the token and chat id into `secrets.properties` and build the APK (or grab the prebuilt APK and update over ADB).
-4. **[⬇ Download APK](../../releases/latest)** → install on the head unit.
-
-> ☁️ *Alternative:* one shared bot for many users would require a small server (code pairing, routing) — no longer a local‑only setup.
+2. **[⬇ Download the APK](../../releases/latest)** and install it on the head unit.
+3. Open **[@Varanbyd_bot](https://t.me/Varanbyd_bot)** in Telegram → **pair your car with a code**.
+4. Done — control your car from your phone and the head‑unit screen.
 
 ---
 
