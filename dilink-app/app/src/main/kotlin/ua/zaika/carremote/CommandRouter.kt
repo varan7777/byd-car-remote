@@ -8,6 +8,7 @@ import ua.zaika.carremote.car.Controls
 import ua.zaika.carremote.car.Fids
 import ua.zaika.carremote.car.ShutdownReport
 import ua.zaika.carremote.car.StatusReport
+import ua.zaika.carremote.car.SeatHeating
 import ua.zaika.carremote.telegram.Button
 import ua.zaika.carremote.telegram.InlineKeyboard
 import ua.zaika.carremote.telegram.Reply
@@ -28,6 +29,11 @@ class CommandRouter(
     private val ownerChatId: Long,
     private val prefs: SharedPreferences,
 ) {
+    private val seats = SeatHeating(car::getInt, car::writeResult,
+        useFallback = { prefs.getBoolean("seat_fallback_$it", false) },
+        rememberFallback = { prefs.edit().putBoolean("seat_fallback_$it", true).apply() },
+    )
+
     /** Greeting that also (re)shows the persistent keyboard. */
     fun menu(header: String) = Reply(header, ReplyKeyboard(MAIN_LABELS))
 
@@ -58,12 +64,8 @@ class CommandRouter(
             "temp_up" -> changeTemp(+1)
             "temp_down" -> changeTemp(-1)
 
-            "seat_driver" -> toggleSeat(
-                "водія", Fids.SEAT_HEAT_DRIVER_SWITCH, Fids.SEAT_HEAT_DRIVER_LEVEL, Fids.SEAT_HEAT_DRIVER_READ,
-            )
-            "seat_pass" -> toggleSeat(
-                "пасажира", Fids.SEAT_HEAT_PASS_SWITCH, Fids.SEAT_HEAT_PASS_LEVEL, Fids.SEAT_HEAT_PASS_READ,
-            )
+            "seat_driver" -> seatMenu(driver = true)
+            "seat_pass" -> seatMenu(driver = false)
             "findcar" -> findCar()
             "windows_open" -> windows(open = true)
             "windows_close" -> windows(open = false)
@@ -81,6 +83,10 @@ class CommandRouter(
             "unlock_do" -> run(Controls.UNLOCK)
 
             else -> when {
+                token.matches(Regex("seat_(driver|pass)_[0-3]")) -> {
+                    if (!car.isReachable()) Reply(noAdb())
+                    else Reply(seats.set(token.startsWith("seat_driver_"), token.last().digitToInt()))
+                }
                 token.startsWith("setlow_") -> Reply(setLow(token.removePrefix("setlow_").toIntOrNull()))
                 else -> Controls.byId[token]?.let { run(it) } ?: Reply("Невідома команда. /help — список.")
             }
@@ -100,7 +106,7 @@ class CommandRouter(
     private fun run(c: Control): Reply {
         if (!car.isReachable()) return Reply(noAdb())
         if (c.needsPark && !isParked()) return Reply("⚠️ ${c.label}: лише коли авто стоїть (передача P).")
-        car.write(c.dev, c.fid, c.value)
+        if (!car.write(c.dev, c.fid, c.value)) return rejected(c.label)
         val verify = c.verify ?: return Reply("✅ Надіслано: ${c.label}")
         Thread.sleep(SETTLE_MS) // let the command reach the bus before reading it back
         val got = car.getInt(verify.dev, verify.fid)
@@ -111,30 +117,16 @@ class CommandRouter(
         )
     }
 
-    /** Seat heating is two writes to turn on (switch + level); its status fid confirms it. */
-    private fun toggleSeat(who: String, switchFid: Int, levelFid: Int, readFid: Int): Reply {
-        if (!car.isReachable()) return Reply(noAdb())
-        // Only turn OFF when the status fid confirms it is on; if the state can't be read
-        // (likely a wrong read fid for this car), fall through to turning it ON rather than
-        // doing nothing, so the command at least actuates.
-        val level = car.getInt(Fids.DEV_CLIMATE, readFid)
-        if (level != null && level > 0) {
-            car.write(Fids.DEV_CLIMATE, switchFid, 2) // off
-            Thread.sleep(SETTLE_MS)
-            return Reply("🪑 Підігрів $who: вимкнено")
-        }
-        car.write(Fids.DEV_CLIMATE, switchFid, 1) // on
-        car.write(Fids.DEV_CLIMATE, levelFid, SEAT_ON_LEVEL)
-        Thread.sleep(SETTLE_MS)
-        val now = car.getInt(Fids.DEV_CLIMATE, readFid)
-        return Reply(
-            when {
-                now != null && now > 0 -> "🔥 Підігрів $who: увімкнено (рівень $now)"
-                now != null -> "⚠️ Підігрів $who: надіслано, підтвердження немає (стан=$now)."
-                else -> "➡️ Підігрів $who: надіслано (стан не читається — можливо, інший FID на цьому авто)."
-            },
-        )
+    private fun seatMenu(driver: Boolean): Reply {
+        val id = if (driver) "driver" else "pass"
+        val who = if (driver) "водія" else "пасажира"
+        return Reply("Підігрів $who — обери рівень:", InlineKeyboard(listOf(
+            listOf(Button("Вимкнути", "seat_${id}_0")),
+            (1..3).map { Button("🔥 $it", "seat_${id}_$it") },
+        )))
     }
+
+    private fun rejected(label: String) = Reply("⚠️ $label: авто відхилило команду або немає відповіді.")
 
     private fun isParked(): Boolean = car.getInt(Fids.DEV_GEAR, Fids.GEAR) == 1
 
@@ -143,19 +135,25 @@ class CommandRouter(
         if (!car.isReachable()) return Reply(noAdb())
         if (!isParked()) return Reply("⚠️ Вікна: лише коли авто стоїть (передача P).")
         val target = if (open) 100 else 0
-        Fids.WINDOW_SET.forEach { car.write(Fids.DEV_BODYWORK, it, target) }
+        var accepted = true
+        Fids.WINDOW_SET.forEachIndexed { index, fid ->
+            if (index > 0) Thread.sleep(250)
+            if (!car.write(Fids.DEV_BODYWORK, fid, target)) accepted = false
+        }
         Thread.sleep(SETTLE_MS)
         val now = Fids.WINDOWS.joinToString(" ") { car.getInt(Fids.DEV_BODYWORK, it)?.let { p -> "$p%" } ?: "?" }
-        return Reply("🪟 Вікна ${if (open) "відкрито" else "закрито"}: $now")
+        return Reply("${if (accepted) "➡️" else "⚠️"} Вікна: команда ${if (open) "відкрити" else "закрити"} ${if (accepted) "надіслана" else "частково відхилена"}. Стан: $now")
     }
 
     /** "Find car": flash the hazards for a few seconds. */
     private fun findCar(): Reply {
         if (!car.isReachable()) return Reply(noAdb())
-        car.write(Fids.DEV_LIGHTS, Fids.HAZARD, 1)
+        if (!isParked()) return Reply("⚠️ Пошук авто: лише на передачі P.")
+        if (!car.write(Fids.DEV_LIGHTS, Fids.HAZARD, 1)) return rejected("Аварійка")
         Thread.sleep(3000)
-        car.write(Fids.DEV_LIGHTS, Fids.HAZARD, 0)
-        return Reply("📍 Поблимав аварійкою")
+        if (!car.write(Fids.DEV_LIGHTS, Fids.HAZARD, 0))
+            return Reply("⚠️ Не вдалося вимкнути аварійку після пошуку авто. Перевір її вручну.")
+        return Reply("📍 Команди блимання надіслані")
     }
 
     private fun changeTemp(delta: Int): Reply {
@@ -164,7 +162,7 @@ class CommandRouter(
             ?: return Reply("Не вдалося прочитати температуру клімату.")
         val target = (current + delta).coerceIn(Controls.TEMP_MIN, Controls.TEMP_MAX)
         if (target == current) return Reply("🌡 Вже $current °C (межа ${Controls.TEMP_MIN}–${Controls.TEMP_MAX}).")
-        car.write(Fids.DEV_CLIMATE, Controls.TEMP_FID, target)
+        if (!car.write(Fids.DEV_CLIMATE, Controls.TEMP_FID, target)) return rejected("Температура клімату")
         Thread.sleep(SETTLE_MS)
         val got = car.getInt(Fids.DEV_CLIMATE, Fids.AC_TEMP)
         return Reply(if (got == target) "🌡 Клімат: $target °C" else "🌡 Надіслано $target °C (стан $got)")
@@ -198,7 +196,6 @@ class CommandRouter(
 
     private companion object {
         const val SETTLE_MS = 1500L
-        const val SEAT_ON_LEVEL = 3 // mid heat when turning a seat on
         const val KEY_LOW_SOC = "low_soc"
         const val DEFAULT_LOW_SOC = 20
 

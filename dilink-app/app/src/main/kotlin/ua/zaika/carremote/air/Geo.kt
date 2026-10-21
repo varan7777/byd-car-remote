@@ -1,7 +1,12 @@
 package ua.zaika.carremote.air
 
 import android.content.Context
+import android.Manifest
+import android.content.pm.PackageManager
 import android.location.LocationManager
+import android.location.Location
+import android.location.LocationListener
+import android.os.Looper
 import kotlin.math.abs
 import kotlin.math.asin
 import kotlin.math.atan2
@@ -57,6 +62,31 @@ object Geo {
     // reading falls back to where we last really were, instead of jumping or going blank.
     @Volatile private var trusted: Fix? = null
 
+    /** Ask for live fixes: after removing BYDMate there may be no other GPS subscriber. */
+    fun startUpdates(context: Context): AutoCloseable {
+        val lm = context.getSystemService(LocationManager::class.java)
+        val listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) {
+                val next = Fix(location.latitude, location.longitude, location.time)
+                if (validCoordinates(next.lat, next.lon) && !isJump(trusted, next)) trusted = next
+            }
+        }
+        for (provider in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
+            try {
+                val fine = context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                val coarse = context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                if ((fine || provider != LocationManager.GPS_PROVIDER && coarse) && lm.allProviders.contains(provider)) {
+                    lm.requestLocationUpdates(provider, 5_000L, 5f, listener, Looper.getMainLooper())
+                }
+            } catch (_: SecurityException) {
+                // Permission can be revoked between the check and the request.
+            } catch (_: IllegalArgumentException) {
+                // Vendor firmware may advertise a provider it cannot open.
+            }
+        }
+        return AutoCloseable { runCatching { lm.removeUpdates(listener) } }
+    }
+
     /**
      * Most recent *trusted* GPS fix from the head unit, or null if we have never had one.
      *
@@ -71,8 +101,8 @@ object Geo {
         val prev = trusted
         if (raw == null) return prev?.let { it.lat to it.lon } // dropout → remember last
 
-        val sane = inUkraine(raw.lat, raw.lon) && !isJump(prev, raw)
-        if (!sane) return prev?.let { it.lat to it.lon } ?: (raw.lat to raw.lon)
+        val sane = validCoordinates(raw.lat, raw.lon) && !isJump(prev, raw)
+        if (!sane) return prev?.let { it.lat to it.lon }
 
         trusted = raw
         return raw.lat to raw.lon
@@ -81,14 +111,22 @@ object Geo {
     private fun rawFix(context: Context): Fix? = try {
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
-            .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
+            .mapNotNull {
+                if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+                    context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) null
+                else try { lm.getLastKnownLocation(it) } catch (_: SecurityException) { null }
+            }
+            // A newer network-provider fix can be invalid while an older GPS fix is good.
+            // Filter BEFORE picking the newest; never seed the tracker with an invalid fix.
+            .filter { validCoordinates(it.latitude, it.longitude) }
             .maxByOrNull { it.time }
             ?.let { Fix(it.latitude, it.longitude, if (it.time > 0) it.time else System.currentTimeMillis()) }
     } catch (e: Exception) {
         null
     }
 
-    private fun inUkraine(lat: Double, lon: Double) = lat in 43.5..53.5 && lon in 21.5..41.5
+    internal fun validCoordinates(lat: Double, lon: Double) =
+        lat.isFinite() && lon.isFinite() && lat in 43.5..53.5 && lon in 21.5..41.5
 
     /** A fix is a "jump" if it is far from the last trusted one yet implies an impossible speed. */
     private fun isJump(prev: Fix?, next: Fix): Boolean {

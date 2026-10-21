@@ -45,6 +45,9 @@ object Fids {
     const val SEAT_HEAT_PASS_SWITCH = 1276248092
     const val SEAT_HEAT_PASS_LEVEL = 1276252188
     const val SEAT_HEAT_PASS_READ = 711983132
+    const val SEAT_HEAT_DRIVER_STATUS = 702545932 // 1=on, 2=off; 0 is inconclusive
+    const val SEAT_HEAT_DRIVER_FALLBACK = 1125122068 // dev 1001: 1=off, 2..4=levels 1..3
+    const val SEAT_HEAT_PASS_FALLBACK = 1125122076
 
     // Lights, dev 1004. Hazard flash for "find car": write 1=on, 0=off (no readback).
     const val DEV_LIGHTS = 1004
@@ -76,19 +79,8 @@ object Fids {
     // Door locks, dev 1032
     const val LOCK_DRIVER = 1081081864 // int: 1 unlocked, 2 locked
 
-    // --- Camera automations (blind-spot on turn signal / rear on door open). ---
-    // These three addresses are still UNKNOWN on Song Plus; 0 = "not set", which keeps the whole
-    // camera feature a safe no-op (see CameraWatch). Capture them on an AWAKE car:
-    //   • TURN_LEFT / TURN_RIGHT — toggle each blinker, watch which fid flips 0↔1 (likely dev 1004).
-    //   • CAMERA_VIEW_CTRL + CAMERA_DEV — how DiLink shows the camera. Either an autoservice command
-    //     (write 1 = show view, 0 = hide), or — if there is none — a camera package to launch
-    //     (set it in Settings via KEY_CAM_PKG instead, no rebuild needed).
-    const val TURN_DEV = DEV_LIGHTS   // best guess; adjust once probed
-    const val TURN_LEFT = 0           // int: 1 = on
-    const val TURN_RIGHT = 0          // int: 1 = on
-    const val CAMERA_DEV = DEV_BODYWORK
-    const val CAMERA_VIEW_CTRL = 0    // int: 1 = show blind-spot / around-view, 0 = hide
-
-    /** A fid placeholder of 0 means "address not captured yet" — treat the feature as off. */
-    fun isSet(fid: Int) = fid != 0
+    // BYDMate protocol reference; idle=1 confirmed on this Song Plus, side masks still need
+    // a turn-signal test. One stable mask, not two separate flashing boolean addresses.
+    const val TURN_DEV = DEV_LIGHTS
+    const val TURN_MASK = 950009900 // 1=off, 2=left, 4=right, 6=hazard
 }

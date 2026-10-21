@@ -7,9 +7,8 @@ import ua.zaika.carremote.adb.AdbShell
  *
  * Every value lives at a (device, feature id) address. Transaction 5 reads an int,
  * 7 reads a float, 6 writes an int. [write] is only ever called with a tuple from the
- * [Controls] whitelist, never a value straight from a message, and every control is
- * confirmed afterwards by reading its state back — a write this car ignores shows up
- * as a mismatch instead of a false success.
+ * [Controls] whitelist or the comfort/camera modules, never an arbitrary chat address.
+ * Protocol acceptance and physical readback are reported separately by callers.
  */
 class Autoservice(private val adb: AdbShell) {
 
@@ -18,10 +17,18 @@ class Autoservice(private val adb: AdbShell) {
 
     val lastError: String? get() = adb.lastError
 
-    /** Sends a setInt. Returns true if the command reached adbd; the caller confirms the
-     *  physical effect with a readback. */
-    fun write(dev: Int, fid: Int, value: Int): Boolean =
-        adb.exec("service call autoservice $TX_SET_INT i32 $dev i32 $fid i32 $value") != null
+    data class WriteResult(val accepted: Boolean, val changed: Boolean, val code: Int?)
+
+    /** A shell reply alone does not mean the vehicle accepted or actuated the command. */
+    fun writeResult(dev: Int, fid: Int, value: Int): WriteResult {
+        val output = adb.exec("service call autoservice $TX_SET_INT i32 $dev i32 $fid i32 $value")
+        val reply = output?.let(BinderReply::parse)
+            ?: return WriteResult(false, false, null)
+        val code = if (reply.status != 0) reply.status else reply.value
+        return WriteResult(reply.writeAccepted, reply.writeAccepted && code == 1, code)
+    }
+
+    fun write(dev: Int, fid: Int, value: Int): Boolean = writeResult(dev, fid, value).accepted
 
     fun getInt(dev: Int, fid: Int): Int? = readRaw(TX_GET_INT, dev, fid)?.let(::decodeInt)
 
@@ -32,8 +39,8 @@ class Autoservice(private val adb: AdbShell) {
     fun readRaw(tx: Int, dev: Int, fid: Int): Int? {
         require(tx == TX_GET_INT || tx == TX_GET_FLOAT) { "read-only client: tx $tx refused" }
         val out = adb.exec("service call autoservice $tx i32 $dev i32 $fid") ?: return null
-        val word = PARCEL.find(out)?.groupValues?.get(1) ?: return null
-        return word.toLong(16).toInt()
+        val reply = BinderReply.parse(out) ?: return null
+        return reply.value.takeIf { reply.status == 0 }
     }
 
     companion object {
@@ -47,9 +54,6 @@ class Autoservice(private val adb: AdbShell) {
         private const val WRONG_TRANSACT = -10013
         private const val WRONG_DIRECTION = -10011
 
-        // `service call` prints e.g. "Result: Parcel(00000000 0000005b   '....[...')":
-        // a zero status word (no exception), then the 32-bit value.
-        private val PARCEL = Regex("""Parcel\(00000000\s+([0-9a-fA-F]{8})""")
 
         fun decodeInt(raw: Int): Int? = when (raw) {
             FEATURE_LINK_ERROR, NOT_INITIALIZED, WRONG_TRANSACT, WRONG_DIRECTION -> null

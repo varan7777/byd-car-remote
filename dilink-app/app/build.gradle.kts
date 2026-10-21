@@ -21,8 +21,8 @@ android {
         // DiLink 4.0 runs Android 10 (API 29). Staying on 29 avoids the newer
         // background-start and foreground-service-type restrictions.
         targetSdk = 29
-        versionCode = 46
-        versionName = "0.18.0"
+        versionCode = 47
+        versionName = "0.19.0"
 
         ndk { abiFilters += "arm64-v8a" }
 
@@ -31,6 +31,9 @@ android {
     }
 
     buildFeatures { buildConfig = true }
+    // This APK is sideloaded onto DiLink, not distributed through Google Play. API 29 is
+    // intentional for the head unit's background-service behaviour.
+    lint { disable += "ExpiredTargetSdkVersion" }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -44,6 +47,8 @@ android {
 }
 
 dependencies {
+    implementation("org.lsposed.hiddenapibypass:hiddenapibypass:4.3")
+    testImplementation("junit:junit:4.13.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     // Raster-tile (OpenStreetMap) slippy map rendered on Canvas — no WebGL, no Google Play.
     // Lets the air-threat map zoom down to street level on head units whose WebView lacks WebGL.

@@ -13,6 +13,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.Settings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +22,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ua.zaika.carremote.adb.AdbShell
 import ua.zaika.carremote.air.AirAlert
 import ua.zaika.carremote.air.AirAlertMonitor
@@ -30,6 +32,7 @@ import ua.zaika.carremote.air.Speaker
 import ua.zaika.carremote.car.Automations
 import ua.zaika.carremote.car.Autoservice
 import ua.zaika.carremote.car.CameraWatch
+import ua.zaika.carremote.car.CameraSide
 import ua.zaika.carremote.car.CarSnapshot
 import ua.zaika.carremote.car.Fids
 import ua.zaika.carremote.car.Notifier
@@ -38,12 +41,13 @@ import ua.zaika.carremote.car.TripLog
 import ua.zaika.carremote.car.TripTracker
 import ua.zaika.carremote.telegram.TelegramBot
 import ua.zaika.carremote.ui.WidgetOverlay
+import ua.zaika.carremote.ui.SideCameraOverlay
 
 /**
  * Keeps the ADB and Telegram links alive while the head unit is on.
  *
- * No wake lock on purpose: holding one could stop DiLink from sleeping and drain the
- * 12V battery of a parked car. Keep an eye on the 12V line in /status while testing.
+ * The optional parked mode holds a CPU wake lock. Firmware can still suspend networking;
+ * quickboot recovery and cold-boot accessibility rebinding are separate mechanisms.
  */
 class CarRemoteService : Service() {
 
@@ -61,6 +65,10 @@ class CarRemoteService : Service() {
     // Floating widget (drawn over other apps). Managed on the main thread.
     private val mainHandler = Handler(Looper.getMainLooper())
     private var widget: WidgetOverlay? = null
+    private var cameraOverlay: SideCameraOverlay? = null
+    private var locationUpdates: AutoCloseable? = null
+    @Volatile private var cameraPreviewUntil = 0L
+    @Volatile private var cameraPreviewSide = CameraSide.LEFT
 
     override fun onCreate() {
         super.onCreate()
@@ -76,6 +84,7 @@ class CarRemoteService : Service() {
         startForeground(NOTIFICATION_ID, notification("Запуск…"))
 
         // Air-raid watch is independent of Telegram/ADB, so start it before any of that.
+        locationUpdates = Geo.startUpdates(applicationContext)
         startAirMonitor()
 
         adb = AdbShell(this)
@@ -101,22 +110,24 @@ class CarRemoteService : Service() {
             }
         }
 
-        // Camera automations (blind-spot on turn signal / rear on door open). Fast poll, but only
-        // while a camera feature is enabled AND the car is reachable — fully idle otherwise, so it
-        // adds no ADB load by default. A safe no-op until the addresses are captured (see Fids).
+        // A separate ADB session keeps slow dashboard/Telegram requests out of camera polling.
+        cameraOverlay = SideCameraOverlay(applicationContext)
         scope.launch {
-            val cams = CameraWatch(applicationContext, car)
-            while (isActive) {
-                val p = getSharedPreferences("carremote", Context.MODE_PRIVATE)
-                cams.onTurn = p.getBoolean(KEY_CAM_TURN, false)
-                cams.onDoor = p.getBoolean(KEY_CAM_DOOR, false)
-                cams.pkgOverride = p.getString(KEY_CAM_PKG, null)
-                if ((cams.onTurn || cams.onDoor) && car.isReachable()) {
-                    cams.poll()
-                    delay(1_500)
-                } else {
-                    delay(5_000)
+            val cameraAdb = AdbShell(applicationContext)
+            val cams = CameraWatch(Autoservice(cameraAdb))
+            try {
+                while (isActive) {
+                    val p = getSharedPreferences("carremote", Context.MODE_PRIVATE)
+                    val turn = p.getBoolean(KEY_CAM_TURN, false)
+                    val door = p.getBoolean(KEY_CAM_DOOR, false)
+                    val preview = SystemClock.elapsedRealtime() < cameraPreviewUntil
+                    val side = if (preview) cams.preview(cameraPreviewSide)
+                        else if (turn || door) cams.poll(turn, door, p.getInt(KEY_CAM_MIN_SPEED, 15)) else null
+                    withContext(Dispatchers.Main) { cameraOverlay?.request(side) }
+                    delay(if (turn || door || preview) 250L else 1_000L)
                 }
+            } finally {
+                cameraAdb.close()
             }
         }
 
@@ -298,6 +309,10 @@ class CarRemoteService : Service() {
     private fun readLocation(): Pair<Double, Double>? = Geo.lastKnown(applicationContext)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_CAMERA_PREVIEW) {
+            cameraPreviewSide = if (intent.getStringExtra("side") == "right") CameraSide.RIGHT else CameraSide.LEFT
+            cameraPreviewUntil = SystemClock.elapsedRealtime() + 10_000
+        }
         if (intent?.action == ACTION_TEST) {
             airBeep()
             if (getSharedPreferences("carremote", Context.MODE_PRIVATE).getBoolean(KEY_VOICE, true)) {
@@ -316,6 +331,8 @@ class CarRemoteService : Service() {
         airTone?.release(); airTone = null
         airSpeaker?.shutdown(); airSpeaker = null
         widget?.hide(); widget = null
+        cameraOverlay?.close(); cameraOverlay = null
+        locationUpdates?.close(); locationUpdates = null
         scope.cancel()
         adb.close()
         telegramStatus = "Сервіс зупинено"
@@ -355,7 +372,8 @@ class CarRemoteService : Service() {
         const val KEY_CURRENCY = "currency"
         const val KEY_CAM_TURN = "cam_turn"   // show camera on turn signal
         const val KEY_CAM_DOOR = "cam_door"   // show camera when a door opens
-        const val KEY_CAM_PKG = "cam_pkg"     // optional camera package to launch
+        const val KEY_CAM_MIN_SPEED = "cam_min_speed"
+        const val ACTION_CAMERA_PREVIEW = "ua.zaika.carremote.CAMERA_PREVIEW"
         const val DEFAULT_RADIUS = 40
         const val ACTION_TEST = "ua.zaika.carremote.action.AIR_TEST"
 

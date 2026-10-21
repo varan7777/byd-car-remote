@@ -3,8 +3,9 @@ package ua.zaika.carremote.car
 /** High-voltage power maths. Power comes from pack voltage × current, so it has real decimals
  *  (the engine-power fid is whole kW only). Negative = energy flowing into the battery. */
 object Power {
-    /** Usable battery, kWh. Song Plus Champion EV (LFP Blade) ≈ 71.8; tune per variant. */
-    const val CAPACITY_KWH = 71.8f
+    /** Battery capacity, kWh. Per owner: 87 kWh on this Song Plus (used only for the charge-time
+     *  fallback estimate). */
+    const val CAPACITY_KWH = 87f
 
     fun kw(hvVolts: Int?, hvAmps: Float?): Float? =
         if (hvVolts != null && hvAmps != null) hvVolts * hvAmps / 1000f else null

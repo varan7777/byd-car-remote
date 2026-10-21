@@ -1,6 +1,8 @@
 package ua.zaika.carremote.ui
 
 import android.app.Activity
+import android.Manifest
+import android.content.pm.PackageManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -16,6 +18,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
+import android.widget.Button
 import ua.zaika.carremote.CarRemoteService
 
 /** App settings: keep-awake, reminders, floating widget, and the charging tariff/currency. */
@@ -45,10 +48,39 @@ class SettingsActivity : Activity() {
             prefs.edit().putBoolean(CarRemoteService.KEY_WIDGET, it).apply()
         }
         val camTurn = sw("📹  Камера при повороті (сліпа зона)", prefs.getBoolean(CarRemoteService.KEY_CAM_TURN, false)) {
+            if (it) cameraPermissions()
             prefs.edit().putBoolean(CarRemoteService.KEY_CAM_TURN, it).apply()
         }
-        val camDoor = sw("📹  Камера при відкритті дверей (що позаду)", prefs.getBoolean(CarRemoteService.KEY_CAM_DOOR, false)) {
+        val camDoor = sw("📹  Бокова камера при відкритті дверей на P", prefs.getBoolean(CarRemoteService.KEY_CAM_DOOR, false)) {
+            if (it) cameraPermissions()
             prefs.edit().putBoolean(CarRemoteService.KEY_CAM_DOOR, it).apply()
+        }
+
+        val cameraSpeed = EditText(this).apply {
+            hint = "Камера при повороті: від 5 до 80 км/год"
+            setText(prefs.getInt(CarRemoteService.KEY_CAM_MIN_SPEED, 15).toString())
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY)
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            onChange { text -> text.toIntOrNull()?.takeIf { it in 5..80 }?.let {
+                prefs.edit().putInt(CarRemoteService.KEY_CAM_MIN_SPEED, it).apply()
+            } }
+        }
+        val speedLabel = TextView(this).apply {
+            text = "Камера при повороті — мінімальна швидкість, км/год"
+            setTextColor(Color.WHITE); setPadding(dp(16), dp(12), dp(16), 0)
+        }
+        val cameraTests = LinearLayout(this).apply {
+            for ((name, side) in listOf("◀ Ліва: тест на P" to "left", "Права: тест на P ▶" to "right")) {
+                addView(Button(this@SettingsActivity).apply {
+                    text = name
+                    setOnClickListener {
+                        cameraPermissions()
+                        startService(Intent(this@SettingsActivity, CarRemoteService::class.java)
+                            .setAction(CarRemoteService.ACTION_CAMERA_PREVIEW).putExtra("side", side))
+                    }
+                }, LinearLayout.LayoutParams(0, -2, 1f))
+            }
         }
 
         val tariffLabel = TextView(this).apply {
@@ -76,8 +108,9 @@ class SettingsActivity : Activity() {
             setTextColor(Color.parseColor("#8A97AD")); textSize = 13f
             setPadding(dp(16), dp(14), dp(16), dp(24))
             text = "Віджет потребує дозволу «Поверх інших застосунків». Поїздки читаються з журналу " +
-                "авто (потрібен дозвіл на сховище). Витрати = кВт·год × тариф. Камери запрацюють " +
-                "після налаштування адрес на увімкненому авто."
+                "авто (потрібен дозвіл на сховище). Витрати = кВт·год × тариф. Камерам потрібні " +
+                "дозволи «Камера» й «Поверх інших застосунків». Тест показує камеру 10 секунд, " +
+                "лише на P без руху. На R камери застосунку закриваються. Для поворотів стандартний поріг — 15 км/год."
         }
 
         setContentView(ScrollView(this).apply {
@@ -86,9 +119,21 @@ class SettingsActivity : Activity() {
                 orientation = LinearLayout.VERTICAL
                 addView(title); addView(keepAwake); addView(autos); addView(widget)
                 addView(camTurn); addView(camDoor)
+                addView(speedLabel); addView(cameraSpeed); addView(cameraTests)
                 addView(tariffLabel); addView(tariff); addView(currency); addView(hint)
+                isFocusableInTouchMode = true
+                requestFocus()
             })
         })
+    }
+
+    private fun cameraPermissions() {
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.CAMERA), 41)
+        }
+        if (!Settings.canDrawOverlays(this)) runCatching {
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+        }
     }
 
     private fun sw(label: String, checked: Boolean, onChange: (Boolean) -> Unit) = Switch(this).apply {

@@ -84,6 +84,14 @@ class Watchdog(private val adb: AdbShell, token: String, chatId: Long) {
               awake=§(dumpsys power 2>/dev/null | grep -c 'mWakefulness=Awake')
               keep=§(cat §KEEP_FILE 2>/dev/null)
               now=§(date +%s)
+              # Keep our accessibility service enabled (the cold-boot anchor) — append only,
+              # never touching the entries other apps (e.g. BYDMate) rely on.
+              A=§(settings get secure enabled_accessibility_services 2>/dev/null)
+              case "§A" in
+                *ua.zaika.carremote/*) ;;
+                ''|null) settings put secure enabled_accessibility_services ua.zaika.carremote/.KeepAliveA11yService 2>/dev/null; settings put secure accessibility_enabled 1 2>/dev/null ;;
+                *) settings put secure enabled_accessibility_services "§A:ua.zaika.carremote/.KeepAliveA11yService" 2>/dev/null; settings put secure accessibility_enabled 1 2>/dev/null ;;
+              esac
               # Keep-awake mode: hold a kernel wake lock so the head unit does not suspend.
               if [ "§keep" = 1 ]; then echo carremote > /sys/power/wake_lock 2>/dev/null; else echo carremote > /sys/power/wake_unlock 2>/dev/null; fi
               if [ -n "§up" ]; then
