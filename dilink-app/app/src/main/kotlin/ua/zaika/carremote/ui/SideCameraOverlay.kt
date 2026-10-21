@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.SurfaceTexture
+import android.hardware.display.DisplayManager
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -27,7 +28,11 @@ import java.util.concurrent.Executors
 class SideCameraOverlay(private val context: Context) : AutoCloseable {
     private val handler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
-    private val wm = context.getSystemService(WindowManager::class.java)
+    private val displayManager = context.getSystemService(DisplayManager::class.java)
+    // Resolved per attach: the instrument-cluster display when present, else the main screen.
+    // The user wants every view (both blind-spot sides and the door camera) on the cluster.
+    private var uiContext: Context = context
+    private var wm = context.getSystemService(WindowManager::class.java)
     private var root: FrameLayout? = null
     private var windowParams: WindowManager.LayoutParams? = null
     private var label: TextView? = null
@@ -65,13 +70,24 @@ class SideCameraOverlay(private val context: Context) : AutoCloseable {
         update()
     }
 
+    /** The instrument-cluster virtual display, or null when this unit has none. */
+    private fun clusterDisplay() = runCatching {
+        displayManager.displays.firstOrNull { it.name.contains("XDJAScreenProjection", ignoreCase = true) }
+    }.getOrNull()
+
     private fun attach() {
-        val panel = FrameLayout(context).apply { setBackgroundColor(Color.BLACK) }
+        // Render on the cluster when it exists; fall back to the main screen otherwise.
+        val cluster = clusterDisplay()
+        uiContext = if (cluster != null) context.createDisplayContext(cluster) else context
+        wm = uiContext.getSystemService(WindowManager::class.java)
+        val onCluster = cluster != null
+
+        val panel = FrameLayout(uiContext).apply { setBackgroundColor(Color.BLACK); alpha = 0f }
         root = panel
         // Bind only the visible side. An unconsumed hidden preview can fill the vendor's
         // buffer queue and stall its sibling. A side change reopens the one required stream.
         for (side in listOf(checkNotNull(desired))) {
-            val texture = TextureView(context).apply { alpha = 0f; isOpaque = true }
+            val texture = TextureView(uiContext).apply { alpha = 0f; isOpaque = true }
             textures[side] = texture
             panel.addView(texture, FrameLayout.LayoutParams(-1, -1))
             texture.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
@@ -93,22 +109,33 @@ class SideCameraOverlay(private val context: Context) : AutoCloseable {
                 }
             }
         }
-        label = TextView(context).apply {
+        label = TextView(uiContext).apply {
             setTextColor(Color.WHITE); setBackgroundColor(0xAA000000.toInt())
             textSize = 15f; setPadding(12, 5, 12, 5)
         }.also { panel.addView(it, FrameLayout.LayoutParams(-1, -2, Gravity.TOP)) }
-        val width = (context.resources.displayMetrics.widthPixels * 0.30f).toInt().coerceAtLeast(280)
+        // Size to the target display: a big centred 16:9 view on the cluster; a corner PiP on the
+        // main screen. metrics come from the display context, so they match the chosen display.
+        val m = uiContext.resources.displayMetrics
+        val width: Int
+        val height: Int
+        if (onCluster) {
+            height = (m.heightPixels * 0.92f).toInt()
+            width = (height * 16 / 9).coerceAtMost((m.widthPixels * 0.95f).toInt())
+        } else {
+            width = (m.widthPixels * 0.30f).toInt().coerceAtLeast(280)
+            height = width * 9 / 16 + 30
+        }
         val params = WindowManager.LayoutParams(
-            width, width * 9 / 16 + 30, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            width, height, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             // DiLink clamps NOT_TOUCHABLE overlays to alpha=0.8: camera frames would blend
             // with navigation underneath. A touchable panel keeps the video opaque.
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT,
-        ).apply { gravity = Gravity.TOP or Gravity.START; x = -width - 32; y = 90 }
+        ).apply { gravity = Gravity.CENTER; x = 0; y = 0 }
         windowParams = params
         runCatching { wm.addView(panel, params) }.onFailure {
-            Log.w(TAG, "cannot attach camera overlay", it); dismiss()
+            Log.w(TAG, "cannot attach camera overlay (cluster=$onCluster)", it); dismiss()
             retryAfter = SystemClock.elapsedRealtime() + 10_000
         }
     }
@@ -155,18 +182,9 @@ class SideCameraOverlay(private val context: Context) : AutoCloseable {
         val side = desired
         val fresh = side != null && frames[side]?.let { SystemClock.elapsedRealtime() - it < 750 } == true
         textures.forEach { (key, view) -> view.alpha = if (key == side) 1f else 0f }
-        val panel = root
-        val params = windowParams
-        if (panel != null && params != null) {
-            val x = if (ready && fresh) context.resources.displayMetrics.widthPixels - params.width - 16
-                else -params.width - 32
-            if (params.x != x) {
-                params.x = x
-                runCatching { wm.updateViewLayout(panel, params) }.onFailure {
-                    Log.w(TAG, "cannot position preview", it); dismiss()
-                }
-            }
-        }
+        // Centred window: reveal the whole panel only once real frames arrive, so the gauges
+        // underneath are never covered by a black box while the stream is still opening.
+        root?.alpha = if (ready && fresh) 1f else 0f
         label?.text = if (side == CameraSide.LEFT) "◀ Ліва камера" else "Права камера ▶"
     }
 

@@ -58,17 +58,45 @@ object Geo {
 
     private class Fix(val lat: Double, val lon: Double, val tMs: Long)
 
-    // The last fix we trusted. Kept in memory for the life of the process so a dropout or a bad
-    // reading falls back to where we last really were, instead of jumping or going blank.
+    // The last fix we trusted. Persisted to disk (not just memory) so that when GPS is jammed —
+    // common during air raids, exactly when the map matters — we still show where the car last
+    // really was after a restart, instead of a blank "no coordinates".
     @Volatile private var trusted: Fix? = null
+    @Volatile private var loaded = false
+    private var lastPersistMs = 0L
+
+    private fun ensureLoaded(context: Context) {
+        if (loaded) return
+        loaded = true
+        runCatching {
+            val p = context.getSharedPreferences("carremote", Context.MODE_PRIVATE)
+            val lat = p.getFloat("gps_lat", Float.NaN).toDouble()
+            val lon = p.getFloat("gps_lon", Float.NaN).toDouble()
+            if (validCoordinates(lat, lon)) trusted = Fix(lat, lon, p.getLong("gps_ts", 0L))
+        }
+    }
+
+    private fun remember(context: Context, fix: Fix) {
+        trusted = fix
+        val now = System.currentTimeMillis()
+        if (now - lastPersistMs < 30_000) return // throttle disk writes
+        lastPersistMs = now
+        runCatching {
+            context.getSharedPreferences("carremote", Context.MODE_PRIVATE).edit()
+                .putFloat("gps_lat", fix.lat.toFloat())
+                .putFloat("gps_lon", fix.lon.toFloat())
+                .putLong("gps_ts", fix.tMs).apply()
+        }
+    }
 
     /** Ask for live fixes: after removing BYDMate there may be no other GPS subscriber. */
     fun startUpdates(context: Context): AutoCloseable {
+        ensureLoaded(context)
         val lm = context.getSystemService(LocationManager::class.java)
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
                 val next = Fix(location.latitude, location.longitude, location.time)
-                if (validCoordinates(next.lat, next.lon) && !isJump(trusted, next)) trusted = next
+                if (validCoordinates(next.lat, next.lon) && !isJump(trusted, next)) remember(context, next)
             }
         }
         for (provider in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
@@ -97,14 +125,15 @@ object Geo {
      * and keep the previous position until a sane fix comes back.
      */
     fun lastKnown(context: Context): Pair<Double, Double>? {
+        ensureLoaded(context)
         val raw = rawFix(context)
         val prev = trusted
-        if (raw == null) return prev?.let { it.lat to it.lon } // dropout → remember last
+        if (raw == null) return prev?.let { it.lat to it.lon } // dropout/jam → last known
 
         val sane = validCoordinates(raw.lat, raw.lon) && !isJump(prev, raw)
         if (!sane) return prev?.let { it.lat to it.lon }
 
-        trusted = raw
+        remember(context, raw)
         return raw.lat to raw.lon
     }
 
