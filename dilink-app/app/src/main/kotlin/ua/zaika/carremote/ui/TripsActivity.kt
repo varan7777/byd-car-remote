@@ -19,20 +19,26 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-// Palette — slate blue, deliberately not the green accent used elsewhere.
-private const val BG = 0xFF0F1626.toInt()
-private const val HEADER_BG = 0xFF1B2740.toInt()
-private const val ZEBRA = 0xFF131D30.toInt()
-private const val DIVIDER = 0xFF223148.toInt()
-private const val WHITE = 0xFFE8EDF6.toInt()
-private const val MUTED = 0xFF8CA0BE.toInt()
-private const val HEAD = 0xFFAFC0DC.toInt()
-private const val ACCENT = 0xFF5AA9FF.toInt()   // blue — labels & cost
-private const val GOOD = 0xFF49C7E0.toInt()      // cyan
-private const val MID = 0xFFF2B65A.toInt()       // amber
-private const val HIGH = 0xFFFF7A7A.toInt()      // red
+/** Theme-aware palette for the trips table (Apple light / dark). */
+private class Pal(
+    val bg: Int, val header: Int, val zebra: Int, val rowAlt: Int, val divider: Int,
+    val text: Int, val muted: Int, val accent: Int, val good: Int, val mid: Int, val high: Int,
+) {
+    companion object {
+        fun of(ctx: Context): Pal = if (Ui.isLight(ctx)) Pal(
+            bg = 0xFFF2F2F7.toInt(), header = 0xFFFFFFFF.toInt(), zebra = 0xFFFFFFFF.toInt(),
+            rowAlt = 0xFFF6F6FA.toInt(), divider = 0x14000000, text = 0xFF000000.toInt(),
+            muted = 0xFF8E8E93.toInt(), accent = 0xFF34C759.toInt(),
+            good = 0xFF34C759.toInt(), mid = 0xFFFF9500.toInt(), high = 0xFFFF3B30.toInt(),
+        ) else Pal(
+            bg = 0xFF000000.toInt(), header = 0xFF1C1C1E.toInt(), zebra = 0xFF121214.toInt(),
+            rowAlt = 0xFF000000.toInt(), divider = 0x1FFFFFFF, text = 0xFFFFFFFF.toInt(),
+            muted = 0xFF98989F.toInt(), accent = 0xFF30D158.toInt(),
+            good = 0xFF30D158.toInt(), mid = 0xFFFF9F0A.toInt(), high = 0xFFFF453A.toInt(),
+        )
+    }
+}
 
-// Column weights shared by header and rows.
 private const val W_DATE = 1.5f
 private const val W_TIME = 1.0f
 private const val W_DUR = 1.0f
@@ -49,6 +55,7 @@ class TripsActivity : Activity() {
 
     private val dens get() = resources.displayMetrics.density
     private fun dp(v: Int) = (v * dens).toInt()
+    private val pal by lazy { Pal.of(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,13 +66,13 @@ class TripsActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(BG)
-            setPadding(dp(12), dp(8), dp(12), 0)
+            setBackgroundColor(pal.bg)
+            setPadding(dp(12), dp(10), dp(12), 0)
         }
         root.addView(TextView(this).apply {
-            text = "📈 Поїздки"
-            setTextColor(WHITE); textSize = 16f; typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, 0, 0, dp(6))
+            text = "Поїздки"
+            setTextColor(pal.text); textSize = 26f; typeface = sfBold
+            setPadding(dp(4), dp(2), 0, dp(8))
         })
 
         if (trips.isEmpty()) {
@@ -73,7 +80,7 @@ class TripsActivity : Activity() {
                 text = if (!EnergyDb.available())
                     "Не вдалось прочитати журнал авто. Дай дозвіл «Пам'ять» у ⚙ Налаштування."
                 else "Поки порожньо."
-                setTextColor(MUTED); textSize = 14f
+                setTextColor(pal.muted); textSize = 14f
             })
             setContentView(root); return
         }
@@ -84,7 +91,7 @@ class TripsActivity : Activity() {
         root.addView(divider())
         root.addView(RecyclerView(this).apply {
             layoutManager = LinearLayoutManager(this@TripsActivity)
-            adapter = TripAdapter(trips, tariff, dens)
+            adapter = TripAdapter(trips, tariff, dens, pal)
             clipToPadding = false
         }, LinearLayout.LayoutParams(MATCH, 0, 1f))
         setContentView(root)
@@ -96,7 +103,7 @@ class TripsActivity : Activity() {
         val kwh = snap?.lifetimeKwh?.toDouble()?.takeIf { it > 0 } ?: return null
         val km = snap.mileageKm?.toDouble()?.takeIf { it > 0 } ?: return null
         val cost = tariff?.let { " · ${n(kwh * it)} $cur" } ?: ""
-        return sumLine("Весь час", ACCENT, "${n(km)} км · ${n(kwh)} кВт·год · ${"%.1f".format(kwh / km * 100)}/100$cost")
+        return sumLine("Весь час", pal.accent, "${n(km)} км · ${n(kwh)} кВт·год · ${"%.1f".format(kwh / km * 100)}/100$cost")
     }
 
     private fun loggedLine(trips: List<EcTrip>, tariff: Double?, cur: String): View {
@@ -107,27 +114,27 @@ class TripsActivity : Activity() {
         val since = trips.minOfOrNull { it.startMs }?.let {
             " з " + SimpleDateFormat("dd.MM.yy", Locale("uk")).format(Date(it))
         } ?: ""
-        return sumLine("Журнал$since", MUTED, "${trips.size} · ${n(km)} км · ${n(kwh)} кВт·год · $per/100$cost")
+        return sumLine("Журнал$since", pal.muted, "${trips.size} · ${n(km)} км · ${n(kwh)} кВт·год · $per/100$cost")
     }
 
     private fun sumLine(label: String, labelColor: Int, value: String) = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
-        setPadding(dp(2), dp(3), dp(2), dp(3))
+        setPadding(dp(4), dp(3), dp(4), dp(3))
         addView(TextView(this@TripsActivity).apply {
-            text = "$label:"; setTextColor(labelColor); textSize = 13f; typeface = Typeface.DEFAULT_BOLD
+            text = "$label:"; setTextColor(labelColor); textSize = 13f; typeface = sfSemibold
             setPadding(0, 0, dp(8), 0)
         })
-        addView(TextView(this@TripsActivity).apply { text = value; setTextColor(WHITE); textSize = 13f })
+        addView(TextView(this@TripsActivity).apply { text = value; setTextColor(pal.text); textSize = 13f; typeface = sf })
     }
 
     private fun headerRow(cur: String): View {
         val r = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(HEADER_BG)
-            setPadding(dp(8), dp(7), dp(8), dp(7))
+            setBackgroundColor(pal.header)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
         }
         fun h(t: String, w: Float, end: Boolean) = TextView(this).apply {
-            text = t; setTextColor(HEAD); textSize = 11f; typeface = Typeface.DEFAULT_BOLD
+            text = t; setTextColor(pal.muted); textSize = 11f; typeface = sfSemibold
             if (end) gravity = Gravity.END
             layoutParams = LinearLayout.LayoutParams(0, WRAP, w)
         }
@@ -142,10 +149,10 @@ class TripsActivity : Activity() {
     }
 
     private fun divider() = View(this).apply {
-        setBackgroundColor(DIVIDER); layoutParams = LinearLayout.LayoutParams(MATCH, dp(1))
+        setBackgroundColor(pal.divider); layoutParams = LinearLayout.LayoutParams(MATCH, dp(1))
     }
 
-    private class TripAdapter(val items: List<EcTrip>, val tariff: Double?, val d: Float) :
+    private class TripAdapter(val items: List<EcTrip>, val tariff: Double?, val d: Float, val pal: Pal) :
         RecyclerView.Adapter<TripAdapter.VH>() {
 
         private fun dp(v: Int) = (v * d).toInt()
@@ -161,24 +168,24 @@ class TripsActivity : Activity() {
             val ctx = parent.context
             fun cell(color: Int, w: Float, end: Boolean = false, bold: Boolean = false) = TextView(ctx).apply {
                 textSize = 13f; setTextColor(color); maxLines = 1
-                if (bold) typeface = Typeface.DEFAULT_BOLD
+                typeface = if (bold) sfSemibold else sf
                 if (end) gravity = Gravity.END
                 layoutParams = LinearLayout.LayoutParams(0, WRAP, w)
             }
-            val date = cell(WHITE, W_DATE)
-            val time = cell(MUTED, W_TIME)
-            val dur = cell(MUTED, W_DUR, end = true)
-            val km = cell(WHITE, W_KM, end = true, bold = true)
-            val kwh = cell(MUTED, W_KWH, end = true)
-            val eff = cell(MUTED, W_EFF, end = true)
-            val cost = cell(ACCENT, W_COST, end = true)
+            val date = cell(pal.text, W_DATE)
+            val time = cell(pal.muted, W_TIME)
+            val dur = cell(pal.muted, W_DUR, end = true)
+            val km = cell(pal.text, W_KM, end = true, bold = true)
+            val kwh = cell(pal.muted, W_KWH, end = true)
+            val eff = cell(pal.muted, W_EFF, end = true)
+            val cost = cell(pal.accent, W_COST, end = true)
             val cells = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setPadding(dp(8), dp(6), dp(8), dp(6))
+                setPadding(dp(10), dp(7), dp(10), dp(7))
                 addView(date); addView(time); addView(dur); addView(km); addView(kwh); addView(eff); addView(cost)
             }
             val line = View(ctx).apply {
-                setBackgroundColor(DIVIDER); layoutParams = LinearLayout.LayoutParams(MATCH, 1)
+                setBackgroundColor(pal.divider); layoutParams = LinearLayout.LayoutParams(MATCH, 1)
             }
             val root = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
@@ -190,7 +197,7 @@ class TripsActivity : Activity() {
 
         override fun onBindViewHolder(h: VH, position: Int) {
             val t = items[position]
-            h.root.setBackgroundColor(if (position % 2 == 0) ZEBRA else BG)
+            h.root.setBackgroundColor(if (position % 2 == 0) pal.zebra else pal.rowAlt)
             h.date.text = fDate.format(Date(t.startMs))
             h.time.text = fTime.format(Date(t.startMs))
             h.dur.text = dur(t.durationS)
@@ -198,7 +205,7 @@ class TripsActivity : Activity() {
             h.kwh.text = "%.1f".format(t.kwh)
             val p = t.per100
             h.eff.text = p?.let { "%.1f".format(it) } ?: ""
-            h.eff.setTextColor(when { p == null -> MUTED; p < 17 -> GOOD; p < 22 -> MID; else -> HIGH })
+            h.eff.setTextColor(when { p == null -> pal.muted; p < 17 -> pal.good; p < 22 -> pal.mid; else -> pal.high })
             h.cost.text = if (tariff != null) "%.0f".format(t.kwh * tariff) else ""
         }
 

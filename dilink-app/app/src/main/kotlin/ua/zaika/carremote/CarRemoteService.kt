@@ -379,6 +379,8 @@ class CarRemoteService : Service() {
         const val KEY_WIDGET = "widget"
         const val KEY_AUTOMATIONS = "automations"
         const val KEY_TARIFF = "tariff_per_kwh"
+        const val KEY_TARIFF_DC1 = "tariff_dc1" // fast-charge option 1
+        const val KEY_TARIFF_DC2 = "tariff_dc2" // fast-charge option 2
         const val KEY_CURRENCY = "currency"
         const val KEY_CAM_TURN = "cam_turn"   // show camera on turn signal
         const val KEY_CAM_DOOR = "cam_door"   // show camera when a door opens
