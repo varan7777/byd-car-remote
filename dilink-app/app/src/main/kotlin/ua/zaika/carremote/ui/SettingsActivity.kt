@@ -44,6 +44,12 @@ class SettingsActivity : Activity() {
             }
             prefs.edit().putBoolean(CarRemoteService.KEY_WIDGET, it).apply()
         }
+        val camTurn = sw("📹  Камера при повороті (сліпа зона)", prefs.getBoolean(CarRemoteService.KEY_CAM_TURN, false)) {
+            prefs.edit().putBoolean(CarRemoteService.KEY_CAM_TURN, it).apply()
+        }
+        val camDoor = sw("📹  Камера при відкритті дверей (що позаду)", prefs.getBoolean(CarRemoteService.KEY_CAM_DOOR, false)) {
+            prefs.edit().putBoolean(CarRemoteService.KEY_CAM_DOOR, it).apply()
+        }
 
         val tariffLabel = TextView(this).apply {
             text = "💰  Вартість зарядки (для розрахунку витрат у Поїздках)"
@@ -70,7 +76,8 @@ class SettingsActivity : Activity() {
             setTextColor(Color.parseColor("#8A97AD")); textSize = 13f
             setPadding(dp(16), dp(14), dp(16), dp(24))
             text = "Віджет потребує дозволу «Поверх інших застосунків». Поїздки читаються з журналу " +
-                "авто (потрібен дозвіл на сховище). Витрати = кВт·год × тариф."
+                "авто (потрібен дозвіл на сховище). Витрати = кВт·год × тариф. Камери запрацюють " +
+                "після налаштування адрес на увімкненому авто."
         }
 
         setContentView(ScrollView(this).apply {
@@ -78,6 +85,7 @@ class SettingsActivity : Activity() {
             addView(LinearLayout(this@SettingsActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(title); addView(keepAwake); addView(autos); addView(widget)
+                addView(camTurn); addView(camDoor)
                 addView(tariffLabel); addView(tariff); addView(currency); addView(hint)
             })
         })

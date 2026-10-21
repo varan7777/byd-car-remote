@@ -51,14 +51,54 @@ object Geo {
     private val COMPASS = listOf("Пн", "ПнСх", "Сх", "ПдСх", "Пд", "ПдЗх", "Зх", "ПнЗх")
     fun compass(deg: Double): String = COMPASS[((((deg % 360) + 360) % 360) / 45.0).roundToInt() % 8]
 
-    /** Most recent GPS fix from the head unit, or null if unavailable / no permission. */
-    fun lastKnown(context: Context): Pair<Double, Double>? = try {
+    private class Fix(val lat: Double, val lon: Double, val tMs: Long)
+
+    // The last fix we trusted. Kept in memory for the life of the process so a dropout or a bad
+    // reading falls back to where we last really were, instead of jumping or going blank.
+    @Volatile private var trusted: Fix? = null
+
+    /**
+     * Most recent *trusted* GPS fix from the head unit, or null if we have never had one.
+     *
+     * The head unit's provider sometimes returns nothing (then we keep showing the last position),
+     * or a wild outlier that teleports the car far away for one reading. We reject a reading that
+     *   • falls outside Ukraine's bounding box, or
+     *   • implies an impossible speed from the last trusted fix (a sudden jump),
+     * and keep the previous position until a sane fix comes back.
+     */
+    fun lastKnown(context: Context): Pair<Double, Double>? {
+        val raw = rawFix(context)
+        val prev = trusted
+        if (raw == null) return prev?.let { it.lat to it.lon } // dropout → remember last
+
+        val sane = inUkraine(raw.lat, raw.lon) && !isJump(prev, raw)
+        if (!sane) return prev?.let { it.lat to it.lon } ?: (raw.lat to raw.lon)
+
+        trusted = raw
+        return raw.lat to raw.lon
+    }
+
+    private fun rawFix(context: Context): Fix? = try {
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
             .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
             .maxByOrNull { it.time }
-            ?.let { it.latitude to it.longitude }
+            ?.let { Fix(it.latitude, it.longitude, if (it.time > 0) it.time else System.currentTimeMillis()) }
     } catch (e: Exception) {
         null
     }
+
+    private fun inUkraine(lat: Double, lon: Double) = lat in 43.5..53.5 && lon in 21.5..41.5
+
+    /** A fix is a "jump" if it is far from the last trusted one yet implies an impossible speed. */
+    private fun isJump(prev: Fix?, next: Fix): Boolean {
+        if (prev == null) return false
+        val km = distanceKm(prev.lat, prev.lon, next.lat, next.lon)
+        if (km < JUMP_MIN_KM) return false
+        val hours = (next.tMs - prev.tMs).coerceAtLeast(1_000L) / 3_600_000.0
+        return km / hours > MAX_SPEED_KMH
+    }
+
+    private const val JUMP_MIN_KM = 10.0     // ignore small moves — only screen large leaps
+    private const val MAX_SPEED_KMH = 500.0  // above this between fixes it's a bad reading, not travel
 }

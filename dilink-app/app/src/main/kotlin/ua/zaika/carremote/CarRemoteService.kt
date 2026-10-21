@@ -7,7 +7,6 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.location.LocationManager
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.Handler
@@ -23,11 +22,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import ua.zaika.carremote.adb.AdbShell
+import ua.zaika.carremote.air.AirAlert
 import ua.zaika.carremote.air.AirAlertMonitor
 import ua.zaika.carremote.air.AirState
+import ua.zaika.carremote.air.Geo
 import ua.zaika.carremote.air.Speaker
 import ua.zaika.carremote.car.Automations
 import ua.zaika.carremote.car.Autoservice
+import ua.zaika.carremote.car.CameraWatch
 import ua.zaika.carremote.car.CarSnapshot
 import ua.zaika.carremote.car.Fids
 import ua.zaika.carremote.car.Notifier
@@ -53,6 +55,7 @@ class CarRemoteService : Service() {
     private var airTone: ToneGenerator? = null
     private var airSpeaker: Speaker? = null
     private var airAlarmActive = false
+    private var airAlertShown: String? = null // oblast name currently shown as a notification
     private var prefsListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
 
     // Floating widget (drawn over other apps). Managed on the main thread.
@@ -61,9 +64,15 @@ class CarRemoteService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Car Remote", NotificationManager.IMPORTANCE_LOW)
-        )
+        getSystemService(NotificationManager::class.java).apply {
+            createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "Car Remote", NotificationManager.IMPORTANCE_LOW)
+            )
+            // High-importance channel so an air-raid alert for our oblast pops as a heads-up.
+            createNotificationChannel(
+                NotificationChannel(AIR_CHANNEL_ID, "Повітряна тривога", NotificationManager.IMPORTANCE_HIGH)
+            )
+        }
         startForeground(NOTIFICATION_ID, notification("Запуск…"))
 
         // Air-raid watch is independent of Telegram/ADB, so start it before any of that.
@@ -89,6 +98,25 @@ class CarRemoteService : Service() {
                     mainHandler.post { widget?.hide() }
                 }
                 delay(6_000)
+            }
+        }
+
+        // Camera automations (blind-spot on turn signal / rear on door open). Fast poll, but only
+        // while a camera feature is enabled AND the car is reachable — fully idle otherwise, so it
+        // adds no ADB load by default. A safe no-op until the addresses are captured (see Fids).
+        scope.launch {
+            val cams = CameraWatch(applicationContext, car)
+            while (isActive) {
+                val p = getSharedPreferences("carremote", Context.MODE_PRIVATE)
+                cams.onTurn = p.getBoolean(KEY_CAM_TURN, false)
+                cams.onDoor = p.getBoolean(KEY_CAM_DOOR, false)
+                cams.pkgOverride = p.getString(KEY_CAM_PKG, null)
+                if ((cams.onTurn || cams.onDoor) && car.isReachable()) {
+                    cams.poll()
+                    delay(1_500)
+                } else {
+                    delay(5_000)
+                }
             }
         }
 
@@ -236,6 +264,13 @@ class CarRemoteService : Service() {
                     if (prefs.getBoolean(KEY_VOICE, true)) airSpeaker?.speak(state.voiceAlert())
                 }
                 airAlarmActive = state.isAlarm
+                // A system notification specifically for an official alert in OUR oblast (edge-triggered).
+                val name = state.oblastAlert?.name
+                if (name != airAlertShown) {
+                    state.oblastAlert?.let { showAirAlert(it) }
+                        ?: getSystemService(NotificationManager::class.java).cancel(AIR_NOTIFICATION_ID)
+                    airAlertShown = name
+                }
             }
         }
     }
@@ -246,16 +281,21 @@ class CarRemoteService : Service() {
         scope.launch { repeat(4) { t.startTone(ToneGenerator.TONE_PROP_BEEP2, 300); delay(400) } }
     }
 
-    /** Most recent GPS fix from the head unit, or null if unavailable / no permission. */
-    private fun readLocation(): Pair<Double, Double>? = try {
-        val lm = getSystemService(LocationManager::class.java)
-        listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
-            .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
-            .maxByOrNull { it.time }
-            ?.let { it.latitude to it.longitude }
-    } catch (e: Exception) {
-        null
+    /** Heads-up notification for an official air-raid alert covering the car's oblast. */
+    private fun showAirAlert(alert: AirAlert) {
+        val why = alert.reasons.firstOrNull()?.let { "\n$it" } ?: ""
+        val n = Notification.Builder(this, AIR_CHANNEL_ID)
+            .setContentTitle("🔴 Повітряна тривога")
+            .setContentText(alert.name)
+            .setStyle(Notification.BigTextStyle().bigText(alert.name + why))
+            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setAutoCancel(true)
+            .build()
+        getSystemService(NotificationManager::class.java).notify(AIR_NOTIFICATION_ID, n)
     }
+
+    /** Most recent trusted GPS fix (filtered for dropouts and outliers by [Geo.lastKnown]). */
+    private fun readLocation(): Pair<Double, Double>? = Geo.lastKnown(applicationContext)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_TEST) {
@@ -301,6 +341,8 @@ class CarRemoteService : Service() {
     companion object {
         private const val CHANNEL_ID = "car_remote"
         private const val NOTIFICATION_ID = 1
+        private const val AIR_CHANNEL_ID = "air_alert"
+        private const val AIR_NOTIFICATION_ID = 2
         private const val KEY_KEEP_AWAKE = "keep_awake"
         private const val KEEP_AWAKE_MIN_SOC = 15f // auto-off below this charge to protect the pack
 
@@ -311,6 +353,9 @@ class CarRemoteService : Service() {
         const val KEY_AUTOMATIONS = "automations"
         const val KEY_TARIFF = "tariff_per_kwh"
         const val KEY_CURRENCY = "currency"
+        const val KEY_CAM_TURN = "cam_turn"   // show camera on turn signal
+        const val KEY_CAM_DOOR = "cam_door"   // show camera when a door opens
+        const val KEY_CAM_PKG = "cam_pkg"     // optional camera package to launch
         const val DEFAULT_RADIUS = 40
         const val ACTION_TEST = "ua.zaika.carremote.action.AIR_TEST"
 

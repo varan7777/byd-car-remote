@@ -2,15 +2,14 @@ package ua.zaika.carremote.ui
 
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Point
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Overlay
 import ua.zaika.carremote.air.AirThreat
 import ua.zaika.carremote.air.Geo
-import kotlin.math.cos
 import kotlin.math.min
-import kotlin.math.sin
 
 /**
  * Draws NEPTUN threat markers (coloured dot + heading arrow), a motion trail, and the car.
@@ -55,18 +54,19 @@ class ThreatsOverlay : Overlay() {
     private val history = HashMap<String, ArrayDeque<Pt>>()
 
     private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val arrow = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    // Dark outline so the drone glyph reads over any map colour.
+    private val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC0B1020.toInt(); style = Paint.Style.STROKE; strokeJoin = Paint.Join.ROUND }
     private val trail = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
     // Bright red so the car stands out on the green/grey OSM map (green blended in).
     private val carFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFF1744.toInt(); style = Paint.Style.FILL }
     private val carRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFF1744.toInt(); style = Paint.Style.STROKE }
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
-    private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x66000000; style = Paint.Style.FILL }
+    private val dronePath = Path()
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow) return
         val d = mapView.resources.displayMetrics.density
-        arrow.strokeWidth = 2f * d
+        outline.strokeWidth = 1.5f * d
         trail.strokeWidth = 2f * d
         carRing.strokeWidth = 2f * d
         label.textSize = 12f * d
@@ -100,14 +100,7 @@ class ThreatsOverlay : Overlay() {
             }
 
             dot.color = color
-            canvas.drawCircle(hx, hy, 5f * d, halo)
-            canvas.drawCircle(hx, hy, 4f * d, dot)
-            t.heading?.let { hdg ->
-                val r = Math.toRadians(hdg.toDouble())
-                val len = 13f * d
-                arrow.color = color
-                canvas.drawLine(hx, hy, hx + (sin(r) * len).toFloat(), hy - (cos(r) * len).toFloat(), arrow)
-            }
+            drawDrone(canvas, hx, hy, t.heading, 8f * d)
         }
 
         car?.let { (lat, lon) ->
@@ -117,6 +110,23 @@ class ThreatsOverlay : Overlay() {
             canvas.drawCircle(x, y, 4f * d, carFill)
             canvas.drawText("ви", x + 13f * d, y + 4f * d, label)
         }
+    }
+
+    /** A small delta-wing drone silhouette (Shahed-like): nose points along the heading. With no
+     *  heading the nose points north. [dot] already holds the per-type colour. */
+    private fun drawDrone(canvas: Canvas, cx: Float, cy: Float, heading: Int?, s: Float) {
+        canvas.save()
+        canvas.translate(cx, cy)
+        canvas.rotate((heading ?: 0).toFloat()) // 0° = north = nose up
+        dronePath.reset()
+        dronePath.moveTo(0f, -s)               // nose
+        dronePath.lineTo(s * 0.9f, s * 0.75f)  // right wing tip
+        dronePath.lineTo(0f, s * 0.3f)         // tail notch
+        dronePath.lineTo(-s * 0.9f, s * 0.75f) // left wing tip
+        dronePath.close()
+        canvas.drawPath(dronePath, dot)
+        canvas.drawPath(dronePath, outline)
+        canvas.restore()
     }
 
     /** Dead-reckoned head position: advance the anchor along the heading, capped so it can't run away. */
