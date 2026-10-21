@@ -94,4 +94,7 @@ object Fids {
     const val PM25_ONLINE = 1331691520         // int: sensor state (2 = online here)
     const val QUICK_CLEAN_AIR = 1033895944     // dev 1000, int status: 1 = cleaning
     const val QUICK_CLEAN_AIR_SET = 1330642960 // dev 1000, write 1 = start a clean cycle
+    // Negative-ion generator. Status unreadable on this car (likely no hardware) — the control
+    // is best-effort: the write is accepted but its effect can't be confirmed here.
+    const val PM25_ANION_STATE_SET = 1337982994
 }
