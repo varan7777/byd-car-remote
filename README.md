@@ -1,141 +1,85 @@
-# Car Remote — керування BYD Song Plus через Telegram
+# 🚗 Car Remote
 
-Власний застосунок для екрана авто (DiLink), який читає дані машини й відповідає
-в Telegram. Без BYD-акаунта і без хмари BYD: застосунок говорить із системним
-сервісом `autoservice` через ADB на самому екрані, а Telegram служить каналом зв'язку.
+**Контроль електромобіля BYD з екрана голови (DiLink) і з Telegram — локально, без хмари.**
+**Control your BYD EV from the head‑unit (DiLink) screen and from Telegram — fully local, no cloud.**
 
-```
-Telegram на iPhone  →  сервери Telegram  ←  Car Remote на DiLink  →  autoservice  →  авто
-```
+<p>
+<a href="../../releases/latest"><img alt="Download APK" src="https://img.shields.io/badge/⬇_Завантажити_APK-Download-30D158?style=for-the-badge"></a>
+&nbsp;
+<a href="https://t.me/YOUR_BOT"><img alt="Telegram bot" src="https://img.shields.io/badge/Telegram-бот-0A84FF?style=for-the-badge&logo=telegram&logoColor=white"></a>
+</p>
 
-## Структура
+> [!IMPORTANT]
+> На голові має бути **увімкнений (розблокований) ADB** — бездротове налагодження.
+> The head unit must have **ADB (wireless debugging) enabled**.
 
-| Папка | Що це |
+<p>
+<img src="docs/screenshots/dashboard.png" width="49%">
+<img src="docs/screenshots/settings.png" width="49%">
+</p>
+
+---
+
+## 🇺🇦 Українською
+
+### ✨ Можливості
+| | Функція |
 |---|---|
-| `dilink-app/` | Android-застосунок для екрана авто (Kotlin) |
-| `reference/` | чужі проєкти для довідки, тільки читання (у git не йде) |
+| 🔋 | **Дашборд** на екрані авто — заряд, здоров'я та темп. батареї, 12V, потужність, пробіг, двері/вікна/замок/люк, тиск шин, клімат |
+| 💬 | **Керування через Telegram** — статус, клімат on/off і температура, замок/розблокування, обігрів скла, вікна, люк, багажник, пошук авто (аварійка), поріг заряду |
+| 🌬️ | **Очищення повітря** в салоні (разовий цикл) |
+| 🛡️ | **Карта тривог і БпЛА** (NEPTUN) — тривога по твоєму регіону, рух загроз, **сирена + українська озвучка**, кольорова індикація (зелений/жовтий/червоний) |
+| 📹 | **Камери сліпих зон** — бокова камера при поворотнику, камера при відкритті дверей *(показ на планшеті)* |
+| 📟 | **Плаваючий віджет** — заряд/темп/12V поверх будь‑якого застосунку |
+| 🔔 | **Розумні нагадування** — перегрів батареї, «авто лишилось відкритим» |
+| 📈 | **Поїздки** — повний журнал з вартістю за твоїм тарифом (дім + швидкі зарядки) |
+| 🌗 | **Світла/темна тема** — автоматично під тему голови |
 
-## Поточна версія — 0.19.0
+> ℹ️ Частина функцій керування залежить від версії DiLink і комплектації авто — якщо адреса не підтримується, функція просто не спрацює (без шкоди).
 
-- Телеметрія, Telegram, журнал поїздок, карта БпЛА та голосові сповіщення працюють у сервісі.
-- Команди комфорту мають фіксовані адреси; помилка Binder більше не видається за успіх.
-  Прийняття команди і підтвердження фізичної дії — окремі результати.
-- Підігрів: кнопка сидіння пропонує вимкнення або рівні 1–3. Основний канал — dev 1000;
-  при підтвердженій невідповідності використовується альтернативний dev 1001.
-- Бокові камери: оригінальний AVM-оверлей, ліве/праве прев'ю перевірені на Song Plus.
-  У ⚙ є тести на P (10 секунд), перемикачі поворотника/дверей і поріг швидкості (15 км/год).
-  Автоматика камер початково вимкнена. На R, при втраті телеметрії або зависанні кадру прев'ю зникає.
-- Ємність для приблизного розрахунку заряджання — **87 кВт·год**, зі слів власника.
-- GPS: некоректні початкові координати відкидаються, запитуються живі оновлення.
-  Без достовірного fix показується відсутність GPS, а не хибна відстань до загрози.
+### 🔒 Приватність — «своє авто, свій бот»
+Додаток на твоєму авто спілкується **напряму з твоїм Telegram‑ботом** — без сервера й хмари.
+Кожен користувач створює **власного бота** → ніхто не бачить і не керує чужим авто. Твоє авто ↔ твій бот ↔ твій телефон.
 
-Фізичну дію оновлених команд та спрацювання камер від поворотника/дверей ще треба
-перевірити з власником. Саме відкриття обох камер перевірено на стоянці.
-Подробиці й протокольні адреси: [перевірка 21.10.2026](docs/verification-2026-10-21.md).
+### ⚙️ Встановлення
+1. **Увімкни ADB** на голові (Налаштування → для розробників → бездротове налагодження).
+2. Створи безкоштовного бота в **[@BotFather](https://t.me/BotFather)** → скопіюй **токен**. Дізнайся свій **chat id** (напр. через @userinfobot).
+3. Впиши токен і chat id у `secrets.properties` та збери APK (або завантаж готовий APK нижче й онови через ADB).
+4. **[⬇ Завантажити APK](../../releases/latest)** → встанови на голову.
 
-## Повітряна тривога і БпЛА (NEPTUN)
+> ☁️ *Альтернатива:* один спільний бот для багатьох користувачів потребує окремого сервера (привʼязка по коду, маршрутизація). Це вже не локальний режим.
 
-На екрані авто є карта повітряних загроз і сигналізація за твоїм місцем —
-джерело [neptun.in.ua](https://neptun.in.ua/) (безкоштовний відкритий API, без ключа).
+---
 
-- Стеження працює у фоновому сервісі ([CarRemoteService](dilink-app/app/src/main/kotlin/ua/zaika/carremote/CarRemoteService.kt)),
-  тож тривога спрацьовує **поверх будь-якого застосунку** (навігації, радіо), а не лише коли
-  відкрито наш екран. Екрани лише показують готовий стан із сервісу.
-- Рядок стану на дашборді показує найближчу загрозу (тип, відстань, напрямок, «курс на вас»)
-  і офіційну тривогу по твоїй області.
-- Кнопка **🛡️ Карта тривог і БпЛА** відкриває карту: за замовчуванням — **темна** растрова
-  OpenStreetMap (бібліотека **osmdroid**, рендер на Canvas, пінч-зум до вулиць) з крапками БпЛА,
-  міткою авто й підсвіткою областей із тривогою. Кнопка **🌐 Онлайн-карта** перемикає на живу
-  карту Нептуна у WebView (потрібен WebGL). Кнопка **⚙** — радіус тривоги (10–100 км) і
-  вмик/вимик голосу; налаштування застосовуються наживо.
-- При появі тривоги — звуковий сигнал і **голосове озвучення українською**. Заводський TTS
-  DiLink (`com.byd.autovoice`) не має української, тож застосунок цілиться на **RHVoice**
-  (безкоштовний офлайн-рушій) — постав RHVoice + укр. голос (напр. Marianna), і озвучення
-  працює без Google. Без RHVoice лишаються сигнал і банер. Кнопка **🔊 Перевірити сигнал**
-  у ⚙ програє тест будь-коли.
-- Область визначається по GPS через полігони Нептуна (`oblasts.geojson`), кешовані на диску —
-  працює без Google-сервісів.
+## 🇬🇧 English
 
-Чому osmdroid, а не лише WebView: карта Нептуна — це WebGL (MapLibre), і дешеві голови DiLink
-його часто не тягнуть (порожній екран). osmdroid малює растрові тайли на Canvas, тож карта
-з'являється й зумиться на будь-якому пристрої. Сигналізація — чистий HTTP у Kotlin, тож вона
-працює навіть без будь-якої карти. NEPTUN — агрегатор, а не офіційна система оповіщення.
+### ✨ Features
+| | Feature |
+|---|---|
+| 🔋 | **Dashboard** on the car screen — charge, battery health & temp, 12V, power, mileage, doors/windows/lock/sunroof, tyre pressure, climate |
+| 💬 | **Telegram control** — status, climate on/off & temperature, lock/unlock, defrost, windows, sunroof, trunk, find‑car (hazards), low‑battery threshold |
+| 🌬️ | **Cabin air purification** (one‑shot clean cycle) |
+| 🛡️ | **Air‑raid & UAV map** (NEPTUN) — alerts for your region, moving threats, **siren + Ukrainian voice**, colour‑coded (green/amber/red) |
+| 📹 | **Blind‑spot cameras** — side camera on the turn signal, camera on door‑open *(shown on the tablet)* |
+| 📟 | **Floating widget** — charge/temp/12V over any app |
+| 🔔 | **Smart reminders** — battery overheating, “car left open” |
+| 📈 | **Trips** — full journal with cost by your tariff (home + fast charging) |
+| 🌗 | **Light/dark theme** — follows the head unit |
 
-## Більше можливостей (app-рівень, без прошивки)
+> ℹ️ Some control functions depend on the DiLink version and trim — an unsupported address simply does nothing (safe).
 
-Натхнено [BYDMate](reference/BYDMate/README.en.md) — межею того, що можна без прошивки:
+### 🔒 Privacy — “your car, your bot”
+The app on your car talks **directly to your own Telegram bot** — no server, no cloud.
+Each user creates **their own bot**, so no one can see or control anyone else’s car. Your car ↔ your bot ↔ your phone.
 
-- **📈 Поїздки** — журнал поїздок: відстань з одометра, реальна витрата з BMS
-  (`LIFETIME_KWH`), кВт·год/100 і SOC за поїздку. Пише на диск щохвилини, тож переживає
-  вимкнення; швидкий перезапуск під час руху продовжує ту саму поїздку.
-- **📟 Плаваючий віджет** — SOC / темп. батареї / салон / 12V / потужність поверх будь-якого
-  застосунку; перетягується, тап відкриває дашборд. Потрібен дозвіл «Поверх інших застосунків».
-- **🔔 Розумні нагадування** (Telegram) — перегрів батареї, і «авто на стоянці відчинене /
-  вікно / люк / багажник / капот». Лише читання, без авто-керування.
-- **⚙ Налаштування** — keep-awake, нагадування, віджет на окремому екрані.
+### ⚙️ Setup
+1. **Enable ADB** on the head unit (Developer options → wireless debugging).
+2. Create a free bot in **[@BotFather](https://t.me/BotFather)** → copy the **token**. Get your **chat id** (e.g. via @userinfobot).
+3. Put the token and chat id into `secrets.properties` and build the APK (or grab the prebuilt APK and update over ADB).
+4. **[⬇ Download APK](../../releases/latest)** → install on the head unit.
 
-Усе нове вимкнене/безпечне за замовчуванням і не чіпає базу (статус, Telegram, тривоги).
+> ☁️ *Alternative:* one shared bot for many users would require a small server (code pairing, routing) — no longer a local‑only setup.
 
-## Підготовка
+---
 
-### 1. Інструменти на Mac (один раз)
-
-JDK 21 уже є (`/opt/homebrew/opt/openjdk@21`). Потрібен Android SDK:
-
-```bash
-brew install --cask android-commandlinetools
-```
-
-```bash
-sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
-```
-
-`sdkmanager` попросить прийняти ліцензії Android SDK — це робиш ти.
-
-### 2. Telegram-бот
-
-1. У Telegram напиши [@BotFather](https://t.me/BotFather) → `/newbot` → отримаєш токен.
-2. Напиши [@userinfobot](https://t.me/userinfobot) → він покаже твій числовий id.
-3. Скопіюй `dilink-app/secrets.properties.example` у `dilink-app/secrets.properties` і впиши обидва значення.
-
-Токен нікому не показуй: хто має токен, той може читати повідомлення бота.
-
-### 3. ADB на екрані авто
-
-Без ADB застосунок не прочитає дані. Чи можна його увімкнути, залежить від версії DiLink:
-
-- **DiLink 3 / 4** — вмикається в меню розробника.
-- **DiLink 5.0** — заблоковано заводом, розблоковують віддалено з Китаю.
-
-## Збірка
-
-```bash
-cd dilink-app && JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew assembleDebug
-```
-
-APK: `dilink-app/app/build/outputs/apk/debug/app-debug.apk`
-
-## Встановлення на авто
-
-Mac і авто в одній Wi-Fi мережі, IP екрана — у налаштуваннях Wi-Fi на DiLink:
-
-```bash
-adb connect <IP-екрана>:5555
-```
-
-```bash
-adb install -r dilink-app/app/build/outputs/apk/debug/app-debug.apk
-```
-
-Після першого запуску:
-
-1. На екрані з'явиться «Дозволити налагодження USB?» з ключем застосунку → **Завжди дозволяти** → **OK**.
-2. Дозволь застосунку автозапуск, якщо прошивка питає, інакше система може його вбивати.
-3. У Telegram прийде «🚗 Авто онлайн». Надішли `/status`.
-
-## Безпека
-
-- Бот відповідає **тільки** на `OWNER_CHAT_ID`, усіх інших ігнорує мовчки.
-- Після довгого простою черга Telegram відкидається; короткий quickboot продовжує збережений offset.
-- Читання: транзакції 5/7; команди комфорту: транзакція 6. Довільного запису з Telegram немає.
-- Keep-awake вмикається окремо; прошивка все одно може приспати мережу. Авто-вимкнення режиму — нижче 15% SOC.
+<sub>Zaika • Car Remote — DiLink 5.0 / BYD Song Plus. Не афілійовано з BYD.</sub>
