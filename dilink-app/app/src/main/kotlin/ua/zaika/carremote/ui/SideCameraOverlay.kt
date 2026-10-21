@@ -70,9 +70,15 @@ class SideCameraOverlay(private val context: Context) : AutoCloseable {
         update()
     }
 
-    /** The instrument-cluster virtual display, or null when this unit has none. */
+    /** The instrument-cluster virtual display, or null when this unit has none.
+     *  Three displays share the "XDJAScreenProjection" name: the physical cluster is the
+     *  primary "fission_bg_" one (BYDMate's target), NOT the "shared_" scratch surfaces —
+     *  rendering to a shared one is composited and "ready" but never shown on the cluster. */
     private fun clusterDisplay() = runCatching {
-        displayManager.displays.firstOrNull { it.name.contains("XDJAScreenProjection", ignoreCase = true) }
+        val all = displayManager.displays.filter { it.name.contains("XDJAScreenProjection", ignoreCase = true) }
+        all.firstOrNull { it.name.contains("fission_bg", ignoreCase = true) && !it.name.contains("shared", ignoreCase = true) }
+            ?: all.firstOrNull { !it.name.contains("shared", ignoreCase = true) }
+            ?: all.firstOrNull()
     }.getOrNull()
 
     private fun attach() {

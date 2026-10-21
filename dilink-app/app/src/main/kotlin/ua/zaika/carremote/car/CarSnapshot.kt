@@ -21,8 +21,18 @@ data class CarSnapshot(
     val hoodOpen: Boolean?,
     val lifetimeKwh: Float?,
     val sunroofPct: Int?,
+    val pm25In: Int? = null,
+    val pm25Out: Int? = null,
 ) {
     val gearName: String get() = when (gear) { 1 -> "P"; 2 -> "R"; 3 -> "N"; 4 -> "D"; else -> "—" }
+
+    /** Cabin air quality line, or null when the PM2.5 sensor gives nothing. µg/m³ → WHO-ish bands. */
+    val airQualityText: String? get() {
+        val v = pm25In ?: return null
+        val band = when { v <= 12 -> "чисто"; v <= 35 -> "помірно"; v <= 55 -> "погано"; else -> "дуже погано" }
+        val out = pm25Out?.let { " · ззовні $it" } ?: ""
+        return "$v µg/m³ ($band)$out"
+    }
 
     val chargingText: String
         get() {
@@ -60,6 +70,8 @@ data class CarSnapshot(
                 hoodOpen = i(Fids.DEV_BODYWORK, Fids.HOOD)?.let { it == 1 },
                 lifetimeKwh = f(Fids.DEV_STATISTIC, Fids.LIFETIME_KWH),
                 sunroofPct = i(Fids.DEV_BODYWORK, Fids.SUNROOF),
+                pm25In = i(Fids.DEV_PM25, Fids.PM25_VALUE_IN),
+                pm25Out = i(Fids.DEV_PM25, Fids.PM25_VALUE_OUT),
             )
         }
     }

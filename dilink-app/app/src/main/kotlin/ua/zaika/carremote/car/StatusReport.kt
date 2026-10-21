@@ -18,6 +18,7 @@ object StatusReport {
         val acTemp = car.getInt(Fids.DEV_CLIMATE, Fids.AC_TEMP)
         val inside = car.getInt(Fids.DEV_CLIMATE, Fids.INSIDE_TEMP)
         val outside = car.getInt(Fids.DEV_CLIMATE, Fids.OUTSIDE_TEMP)
+        val pm25 = car.getInt(Fids.DEV_PM25, Fids.PM25_VALUE_IN)
         val locked = car.getInt(Fids.DEV_DOOR_LOCKS, Fids.LOCK_DRIVER)
         val gear = car.getInt(Fids.DEV_GEAR, Fids.GEAR)
         val doorsOpen = Fids.DOORS.count { car.getInt(Fids.DEV_BODYWORK, it) == 1 }
@@ -30,6 +31,7 @@ object StatusReport {
             appendLine("🪫 12V: ${v12.fmt("%.1f В")}")
             tempsLine(inside, outside)?.let { appendLine("🌡 $it") }
             acOn?.let { appendLine("❄️ Клімат: ${if (it == 1) "увімкнено" else "вимкнено"}${acTemp?.let { t -> ", $t °C" } ?: ""}") }
+            pm25?.let { appendLine("🌬 Повітря (PM2.5): $it µg/m³ ${when { it <= 12 -> "— чисто"; it <= 35 -> "— помірно"; it <= 55 -> "— погано"; else -> "— дуже погано" }}") }
             locked?.let { appendLine(if (it == 2) "🔒 Зачинено" else "🔓 Відчинено") }
             gear?.let { appendLine("⚙️ Передача: ${gearName(it)}") }
             if (doorsOpen > 0) appendLine("🚪 Відчинених дверей: $doorsOpen")
