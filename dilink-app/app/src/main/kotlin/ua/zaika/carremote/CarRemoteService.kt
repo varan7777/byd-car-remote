@@ -123,8 +123,11 @@ class CarRemoteService : Service() {
                     val turn = p.getBoolean(KEY_CAM_TURN, false)
                     val door = p.getBoolean(KEY_CAM_DOOR, false)
                     val preview = SystemClock.elapsedRealtime() < cameraPreviewUntil
+                    // Settings stores this as text; tolerate either a string or a legacy int.
+                    val minSpeed = runCatching { p.getString(KEY_CAM_MIN_SPEED, null) }.getOrNull()?.toIntOrNull()
+                        ?: runCatching { p.getInt(KEY_CAM_MIN_SPEED, 15) }.getOrNull() ?: 15
                     val raw = if (preview) cams.preview(cameraPreviewSide)
-                        else if (turn || door) cams.poll(turn, door, p.getInt(KEY_CAM_MIN_SPEED, 15)) else null
+                        else if (turn || door) cams.poll(turn, door, minSpeed) else null
                     // Keep the view up for a few seconds after the trigger clears, so a quick
                     // blinker or a door you only cracked still gives you time to look.
                     val now = SystemClock.elapsedRealtime()
