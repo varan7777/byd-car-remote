@@ -115,16 +115,26 @@ class CarRemoteService : Service() {
         scope.launch {
             val cameraAdb = AdbShell(applicationContext)
             val cams = CameraWatch(Autoservice(cameraAdb))
+            var heldSide: CameraSide? = null
+            var heldUntil = 0L
             try {
                 while (isActive) {
                     val p = getSharedPreferences("carremote", Context.MODE_PRIVATE)
                     val turn = p.getBoolean(KEY_CAM_TURN, false)
                     val door = p.getBoolean(KEY_CAM_DOOR, false)
                     val preview = SystemClock.elapsedRealtime() < cameraPreviewUntil
-                    val side = if (preview) cams.preview(cameraPreviewSide)
+                    val raw = if (preview) cams.preview(cameraPreviewSide)
                         else if (turn || door) cams.poll(turn, door, p.getInt(KEY_CAM_MIN_SPEED, 15)) else null
+                    // Keep the view up for a few seconds after the trigger clears, so a quick
+                    // blinker or a door you only cracked still gives you time to look.
+                    val now = SystemClock.elapsedRealtime()
+                    val side = when {
+                        raw != null -> { heldSide = raw; heldUntil = now + CAMERA_LINGER_MS; raw }
+                        heldSide != null && now < heldUntil -> heldSide
+                        else -> { heldSide = null; null }
+                    }
                     withContext(Dispatchers.Main) { cameraOverlay?.request(side) }
-                    delay(if (turn || door || preview) 250L else 1_000L)
+                    delay(if (turn || door || preview || heldSide != null) 250L else 1_000L)
                 }
             } finally {
                 cameraAdb.close()
@@ -373,6 +383,7 @@ class CarRemoteService : Service() {
         const val KEY_CAM_TURN = "cam_turn"   // show camera on turn signal
         const val KEY_CAM_DOOR = "cam_door"   // show camera when a door opens
         const val KEY_CAM_MIN_SPEED = "cam_min_speed"
+        private const val CAMERA_LINGER_MS = 5_000L // keep the camera up this long after the trigger clears
         const val ACTION_CAMERA_PREVIEW = "ua.zaika.carremote.CAMERA_PREVIEW"
         const val DEFAULT_RADIUS = 40
         const val ACTION_TEST = "ua.zaika.carremote.action.AIR_TEST"

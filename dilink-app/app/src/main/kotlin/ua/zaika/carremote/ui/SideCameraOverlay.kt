@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.SurfaceTexture
-import android.hardware.display.DisplayManager
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -28,9 +27,6 @@ import java.util.concurrent.Executors
 class SideCameraOverlay(private val context: Context) : AutoCloseable {
     private val handler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
-    private val displayManager = context.getSystemService(DisplayManager::class.java)
-    // Resolved per attach: the instrument-cluster display when present, else the main screen.
-    // The user wants every view (both blind-spot sides and the door camera) on the cluster.
     private var uiContext: Context = context
     private var wm = context.getSystemService(WindowManager::class.java)
     private var root: FrameLayout? = null
@@ -70,23 +66,11 @@ class SideCameraOverlay(private val context: Context) : AutoCloseable {
         update()
     }
 
-    /** The instrument-cluster virtual display, or null when this unit has none.
-     *  Three displays share the "XDJAScreenProjection" name: the physical cluster is the
-     *  primary "fission_bg_" one (BYDMate's target), NOT the "shared_" scratch surfaces —
-     *  rendering to a shared one is composited and "ready" but never shown on the cluster. */
-    private fun clusterDisplay() = runCatching {
-        val all = displayManager.displays.filter { it.name.contains("XDJAScreenProjection", ignoreCase = true) }
-        all.firstOrNull { it.name.contains("fission_bg", ignoreCase = true) && !it.name.contains("shared", ignoreCase = true) }
-            ?: all.firstOrNull { !it.name.contains("shared", ignoreCase = true) }
-            ?: all.firstOrNull()
-    }.getOrNull()
-
     private fun attach() {
-        // Render on the cluster when it exists; fall back to the main screen otherwise.
-        val cluster = clusterDisplay()
-        uiContext = if (cluster != null) context.createDisplayContext(cluster) else context
-        wm = uiContext.getSystemService(WindowManager::class.java)
-        val onCluster = cluster != null
+        // Main screen (tablet). The physical cluster display does not render foreign activities
+        // on this unit, so the camera lives here — large, on the left side of the screen.
+        uiContext = context
+        wm = context.getSystemService(WindowManager::class.java)
 
         val panel = FrameLayout(uiContext).apply { setBackgroundColor(Color.BLACK); alpha = 0f }
         root = panel
@@ -119,18 +103,11 @@ class SideCameraOverlay(private val context: Context) : AutoCloseable {
             setTextColor(Color.WHITE); setBackgroundColor(0xAA000000.toInt())
             textSize = 15f; setPadding(12, 5, 12, 5)
         }.also { panel.addView(it, FrameLayout.LayoutParams(-1, -2, Gravity.TOP)) }
-        // Size to the target display: a big centred 16:9 view on the cluster; a corner PiP on the
-        // main screen. metrics come from the display context, so they match the chosen display.
+        // Large 16:9 view on the left of the screen.
         val m = uiContext.resources.displayMetrics
-        val width: Int
-        val height: Int
-        if (onCluster) {
-            height = (m.heightPixels * 0.92f).toInt()
-            width = (height * 16 / 9).coerceAtMost((m.widthPixels * 0.95f).toInt())
-        } else {
-            width = (m.widthPixels * 0.30f).toInt().coerceAtLeast(280)
-            height = width * 9 / 16 + 30
-        }
+        val margin = (16 * m.density).toInt()
+        val width = (m.widthPixels * 0.48f).toInt().coerceAtLeast(360)
+        val height = width * 9 / 16
         val params = WindowManager.LayoutParams(
             width, height, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             // DiLink clamps NOT_TOUCHABLE overlays to alpha=0.8: camera frames would blend
@@ -138,10 +115,10 @@ class SideCameraOverlay(private val context: Context) : AutoCloseable {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT,
-        ).apply { gravity = Gravity.CENTER; x = 0; y = 0 }
+        ).apply { gravity = Gravity.START or Gravity.CENTER_VERTICAL; x = margin; y = 0 }
         windowParams = params
         runCatching { wm.addView(panel, params) }.onFailure {
-            Log.w(TAG, "cannot attach camera overlay (cluster=$onCluster)", it); dismiss()
+            Log.w(TAG, "cannot attach camera overlay", it); dismiss()
             retryAfter = SystemClock.elapsedRealtime() + 10_000
         }
     }
