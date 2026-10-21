@@ -8,7 +8,6 @@ import ua.zaika.carremote.car.Controls
 import ua.zaika.carremote.car.Fids
 import ua.zaika.carremote.car.ShutdownReport
 import ua.zaika.carremote.car.StatusReport
-import ua.zaika.carremote.car.SeatHeating
 import ua.zaika.carremote.telegram.Button
 import ua.zaika.carremote.telegram.InlineKeyboard
 import ua.zaika.carremote.telegram.Reply
@@ -29,11 +28,6 @@ class CommandRouter(
     private val ownerChatId: Long,
     private val prefs: SharedPreferences,
 ) {
-    private val seats = SeatHeating(car::getInt, car::writeResult,
-        useFallback = { prefs.getBoolean("seat_fallback_$it", false) },
-        rememberFallback = { prefs.edit().putBoolean("seat_fallback_$it", true).apply() },
-    )
-
     /** Greeting that also (re)shows the persistent keyboard. */
     fun menu(header: String) = Reply(header, ReplyKeyboard(MAIN_LABELS))
 
@@ -64,8 +58,6 @@ class CommandRouter(
             "temp_up" -> changeTemp(+1)
             "temp_down" -> changeTemp(-1)
 
-            "seat_driver" -> seatMenu(driver = true)
-            "seat_pass" -> seatMenu(driver = false)
             "findcar" -> findCar()
             "windows_open" -> windows(open = true)
             "windows_close" -> windows(open = false)
@@ -83,10 +75,6 @@ class CommandRouter(
             "unlock_do" -> run(Controls.UNLOCK)
 
             else -> when {
-                token.matches(Regex("seat_(driver|pass)_[0-3]")) -> {
-                    if (!car.isReachable()) Reply(noAdb())
-                    else Reply(seats.set(token.startsWith("seat_driver_"), token.last().digitToInt()))
-                }
                 token.startsWith("setlow_") -> Reply(setLow(token.removePrefix("setlow_").toIntOrNull()))
                 else -> Controls.byId[token]?.let { run(it) } ?: Reply("Невідома команда. /help — список.")
             }
@@ -115,15 +103,6 @@ class CommandRouter(
             else "⚠️ ${c.label}: надіслано, підтвердження немає (стан=$got). " +
                 "Можливо, ця команда не підтримується на цьому авто.",
         )
-    }
-
-    private fun seatMenu(driver: Boolean): Reply {
-        val id = if (driver) "driver" else "pass"
-        val who = if (driver) "водія" else "пасажира"
-        return Reply("Підігрів $who — обери рівень:", InlineKeyboard(listOf(
-            listOf(Button("Вимкнути", "seat_${id}_0")),
-            (1..3).map { Button("🔥 $it", "seat_${id}_$it") },
-        )))
     }
 
     private fun rejected(label: String) = Reply("⚠️ $label: авто відхилило команду або немає відповіді.")
@@ -206,7 +185,6 @@ class CommandRouter(
             listOf("🌡 −" to "temp_down", "🌡 +" to "temp_up"),
             listOf("🔒 Замкнути" to "lock", "🔓 Відімкнути" to "unlock"),
             listOf("🌬 Обігрів скла" to "defrost_on", "❄️ Обігрів вимк." to "defrost_off"),
-            listOf("🔥 Сид. водія" to "seat_driver", "🔥 Сид. пасажира" to "seat_pass"),
             listOf("🪟 Вікна відкр." to "windows_open", "🪟 Вікна закр." to "windows_close"),
             listOf("☀️ Люк відкр." to "sunroof_open", "☀️ Люк закр." to "sunroof_close"),
             listOf("🧳 Багажник відкр." to "trunk_open", "🧳 Багажник закр." to "trunk_close"),

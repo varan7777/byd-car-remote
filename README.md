@@ -6,7 +6,7 @@
 <p>
 <a href="../../releases/latest"><img alt="Download APK" src="https://img.shields.io/badge/⬇_Завантажити_APK-Download-30D158?style=for-the-badge"></a>
 &nbsp;
-<a href="https://t.me/YOUR_BOT"><img alt="Telegram bot" src="https://img.shields.io/badge/Telegram-бот-0A84FF?style=for-the-badge&logo=telegram&logoColor=white"></a>
+<a href="https://t.me/Varanbyd_bot"><img alt="Telegram bot" src="https://img.shields.io/badge/Telegram-@Varanbyd__bot-0A84FF?style=for-the-badge&logo=telegram&logoColor=white"></a>
 </p>
 
 > [!IMPORTANT]
