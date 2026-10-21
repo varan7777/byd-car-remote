@@ -18,6 +18,7 @@
 <img src="docs/screenshots/map.png" width="49%">
 <img src="docs/screenshots/trips.png" width="49%">
 <img src="docs/screenshots/settings.png" width="49%">
+<img src="docs/screenshots/tariffs.png" width="49%">
 </p>
 
 ---
