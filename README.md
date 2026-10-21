@@ -15,6 +15,8 @@
 
 <p>
 <img src="docs/screenshots/dashboard.png" width="49%">
+<img src="docs/screenshots/map.png" width="49%">
+<img src="docs/screenshots/trips.png" width="49%">
 <img src="docs/screenshots/settings.png" width="49%">
 </p>
 
