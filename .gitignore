@@ -14,3 +14,5 @@ local.properties
 
 # Third-party checkouts kept for reading only
 reference/
+
+dilink-app/dist/

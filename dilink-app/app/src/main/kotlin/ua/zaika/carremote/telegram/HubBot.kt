@@ -1,113 +1,106 @@
 package ua.zaika.carremote.telegram
 
 import android.content.SharedPreferences
-import android.os.SystemClock
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.Response
-import okhttp3.WebSocket
-import okhttp3.WebSocketListener
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-/** One owner, one authenticated car. No Telegram bot token is distributed in this transport. */
+/**
+ * One owner, one authenticated car. No Telegram bot token is distributed in this transport.
+ * varan.team runs on PHP hosting without long-lived sockets, so the car asks the hub for
+ * commands (the hub holds each request up to ~12 s) and posts replies back over HTTPS.
+ */
 class HubBot(
     private val prefs: SharedPreferences,
     private val handle: (Long, String) -> Reply?,
 ) : RemoteBot {
-    @Volatile private var socket: WebSocket? = null
     @Volatile private var ready = false
     private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.MILLISECONDS).pingInterval(25, TimeUnit.SECONDS).build()
+        .readTimeout(25, TimeUnit.SECONDS).writeTimeout(15, TimeUnit.SECONDS).build()
+    private val json = "application/json; charset=utf-8".toMediaType()
+
+    private class Unauthorized : IOException("Unauthorized")
+
+    private fun post(path: String, body: JSONObject, token: String? = null): JSONObject {
+        val req = Request.Builder().url("$BASE$path").post(body.toString().toRequestBody(json))
+        if (token != null) req.header("Authorization", "Bearer $token")
+        client.newCall(req.build()).execute().use { r ->
+            if (r.code == 401) throw Unauthorized()
+            val text = r.body?.string().orEmpty()
+            if (!r.isSuccessful || text.length > 65536) throw IOException("Hub HTTP ${r.code}")
+            return JSONObject(text)
+        }
+    }
+
+    private fun saveConfig(config: JSONObject?) {
+        // Cached for the foreground banner only; payment rights are authoritative on the server.
+        if (config != null) prefs.edit().putString(CONFIG, config.toString()).apply()
+    }
 
     override suspend fun run(onStatus: (String) -> Unit, onConnected: () -> Unit) {
         var backoff = 2_000L
+        var announced = false
         try {
             while (currentCoroutineContext().isActive) {
                 val token = prefs.getString(TOKEN, "").orEmpty()
                 val code = prefs.getString(CODE, "").orEmpty()
-                if (token.isBlank() && !code.matches(Regex("[0-9]{6}"))) {
-                    onStatus("Hub: введіть код прив’язки у налаштуваннях")
-                    delay(3_000); continue
-                }
-                val events = Channel<Pair<String, Long>>(32)
-                ready = false
-                onStatus("Hub: підключення…")
-                socket = client.newWebSocket(Request.Builder().url("wss://varan.team/car").build(), object : WebSocketListener() {
-                    override fun onOpen(ws: WebSocket, response: Response) {
-                        val auth = if (token.isNotBlank()) JSONObject().put("type", "hello").put("carToken", token)
-                            else JSONObject().put("type", "pair").put("code", code)
-                        ws.send(auth.toString())
-                    }
-                    override fun onMessage(ws: WebSocket, text: String) {
-                        if (text.length > 32768 || !events.trySend(text to SystemClock.elapsedRealtime()).isSuccess) {
-                            ws.close(1008, "Message limit"); events.close()
-                        }
-                    }
-                    override fun onClosed(ws: WebSocket, code: Int, reason: String) { events.close() }
-                    override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) { events.close() }
-                    override fun onClosing(ws: WebSocket, code: Int, reason: String) { ws.close(code, null); events.close() }
-                })
                 try {
-                    coroutineScope {
-                        val heartbeat = launch { while (isActive) { delay(20_000); if (ready) socket?.send("{\"type\":\"ping\"}") } }
-                        try {
-                            for ((raw, receivedAt) in events) {
-                                val msg = JSONObject(raw)
-                                when (msg.optString("type")) {
-                                    "paired", "ready" -> {
-                                        val owner = msg.optLong("chatId")
-                                        if (owner <= 0) throw IOException("Invalid owner")
-                                        val edit = prefs.edit().putLong(OWNER, owner).remove(CODE)
-                                        if (msg.has("carToken")) edit.putString(TOKEN, msg.getString("carToken"))
-                                        edit.apply(); ready = true; backoff = 2_000
-                                        onStatus("Hub: онлайн"); onConnected()
-                                    }
-                                    "config" -> {
-                                        if (!ready) continue
-                                        // Cached for the foreground banner only; payment rights are authoritative on the server.
-                                        prefs.edit().putString(CONFIG, msg.toString()).apply()
-                                    }
-                                    "cmd" -> {
-                                        if (!ready) continue
-                                        val input = msg.optString("text")
-                                        if (input.length > 1000) continue
-                                        if (SystemClock.elapsedRealtime() - receivedAt > 15_000) {
-                                            sendReply(Reply("Команда прострочена й не виконана. Надішліть її ще раз."), msg.optString("requestId"))
-                                            continue
-                                        }
-                                        val reply = runCatching { handle(prefs.getLong(OWNER, 0), input) }
-                                            .getOrElse { Reply("Помилка виконання команди. Спробуйте ще раз.") }
-                                        if (reply != null) sendReply(reply, msg.optString("requestId"))
-                                    }
-                                    "pair_failed" -> {
-                                        prefs.edit().remove(CODE).apply()
-                                        onStatus("Hub: код неправильний або прострочений"); events.close()
-                                    }
-                                    "unauthorized" -> {
-                                        prefs.edit().remove(CONFIG).apply()
-                                        onStatus("Hub: доступ відкликано або тимчасово заблоковано"); events.close()
-                                    }
-                                }
-                            }
-                        } finally { heartbeat.cancel() }
+                    if (token.isBlank()) {
+                        if (!code.matches(Regex("[0-9]{6}"))) {
+                            onStatus("Hub: введіть код прив’язки у налаштуваннях")
+                            delay(3_000); continue
+                        }
+                        onStatus("Hub: прив’язка…")
+                        val msg = post("/api/car/pair", JSONObject().put("code", code))
+                        if (msg.optString("type") != "paired") {
+                            prefs.edit().remove(CODE).apply()
+                            onStatus("Hub: код неправильний або прострочений"); continue
+                        }
+                        val owner = msg.optLong("chatId")
+                        if (owner <= 0) throw IOException("Invalid owner")
+                        prefs.edit().putLong(OWNER, owner).putString(TOKEN, msg.getString("carToken")).remove(CODE).apply()
+                        saveConfig(msg.optJSONObject("config"))
+                        continue
+                    }
+                    val msg = post("/api/car/poll", JSONObject().put("wait", 12), token)
+                    val owner = msg.optLong("chatId")
+                    if (owner <= 0) throw IOException("Invalid owner")
+                    if (prefs.getLong(OWNER, 0) != owner) prefs.edit().putLong(OWNER, owner).apply()
+                    saveConfig(msg.optJSONObject("config"))
+                    ready = true; backoff = 2_000
+                    if (!announced) { announced = true; onStatus("Hub: онлайн"); onConnected() }
+                    val cmds = msg.optJSONArray("cmds") ?: JSONArray()
+                    for (i in 0 until cmds.length()) {
+                        val cmd = cmds.optJSONObject(i) ?: continue
+                        val input = cmd.optString("text")
+                        if (input.isEmpty() || input.length > 1000) continue
+                        val reply = runCatching { handle(owner, input) }
+                            .getOrElse { Reply("Помилка виконання команди. Спробуйте ще раз.") }
+                        if (reply != null) runCatching { sendReply(reply, cmd.optString("requestId")) }
                     }
                 } catch (e: CancellationException) { throw e }
-                catch (_: Exception) { onStatus("Hub: зв’язок перервано") }
-                finally { ready = false; socket?.cancel(); socket = null; events.cancel() }
-                delay(backoff); backoff = (backoff * 2).coerceAtMost(60_000)
+                catch (_: Unauthorized) {
+                    ready = false; announced = false
+                    prefs.edit().remove(CONFIG).apply()
+                    onStatus("Hub: доступ відкликано або тимчасово заблоковано")
+                    delay(60_000)
+                } catch (_: Exception) {
+                    if (ready || announced) onStatus("Hub: зв’язок перервано")
+                    ready = false; announced = false
+                    delay(backoff); backoff = (backoff * 2).coerceAtMost(60_000)
+                }
             }
         } finally {
-            ready = false; socket?.cancel(); client.dispatcher.executorService.shutdown(); client.connectionPool.evictAll()
+            ready = false; client.dispatcher.executorService.shutdown(); client.connectionPool.evictAll()
         }
     }
 
@@ -116,8 +109,9 @@ class HubBot(
         sendReply(reply)
     }
     private fun sendReply(reply: Reply, requestId: String? = null) {
-        if (!ready) throw IOException("Hub offline")
-        val msg = JSONObject().put("type", "reply").put("text", reply.text.take(4000))
+        val token = prefs.getString(TOKEN, "").orEmpty()
+        if (!ready || token.isBlank()) throw IOException("Hub offline")
+        val msg = JSONObject().put("text", reply.text.take(4000))
         if (!requestId.isNullOrBlank()) msg.put("requestId", requestId)
         when (val k = reply.keyboard) {
             is InlineKeyboard -> msg.put("keyboard", JSONObject().put("inline_keyboard", JSONArray().apply {
@@ -128,9 +122,10 @@ class HubBot(
             }).put("resize_keyboard", true).put("is_persistent", true))
             null -> Unit
         }
-        if (socket?.send(msg.toString()) != true) throw IOException("Hub offline")
+        post("/api/car/reply", msg, token)
     }
     companion object {
+        private const val BASE = "https://varan.team"
         const val TOKEN = "hub_car_token"
         const val OWNER = "hub_owner"
         const val CODE = "hub_pair_code"
