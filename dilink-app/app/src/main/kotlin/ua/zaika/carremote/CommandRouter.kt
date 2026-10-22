@@ -190,6 +190,7 @@ class CommandRouter(
             listOf("☀️ Люк відкр." to "sunroof_open", "☀️ Люк закр." to "sunroof_close"),
             listOf("🧳 Багажник відкр." to "trunk_open", "🧳 Багажник закр." to "trunk_close"),
             listOf("🌬 Очистити повітря" to "clean_air"),
+            listOf("⏸ Зупинити зарядку" to "charge_stop", "⚡ Почати зарядку" to "charge_start"),
             listOf("📍 Знайти авто" to "findcar"),
             listOf("🅿️ Стан на стоянці" to "parked", "🪫 Поріг заряду" to "setlow_menu"),
         )
