@@ -29,6 +29,7 @@ import ua.zaika.carremote.ui.DashboardView
 import ua.zaika.carremote.ui.SettingsActivity
 import ua.zaika.carremote.ui.TripsActivity
 import ua.zaika.carremote.ui.Ui
+import ua.zaika.carremote.ui.AdBanner
 import ua.zaika.carremote.ui.dpv
 import ua.zaika.carremote.ui.filledPill
 import ua.zaika.carremote.ui.rounded
@@ -46,6 +47,7 @@ class MainActivity : Activity() {
     private lateinit var dashboard: DashboardView
     private lateinit var statusLine: TextView
     private lateinit var airLine: TextView
+    private lateinit var adBanner: AdBanner
     private val prefs by lazy { getSharedPreferences("carremote", Context.MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,6 +55,7 @@ class MainActivity : Activity() {
         adb = AdbShell(this)
         car = Autoservice(adb)
         dashboard = DashboardView(this)
+        adBanner = AdBanner(this)
 
         statusLine = TextView(this).apply {
             setTextColor(Ui.text2c(context)); textSize = 11f; typeface = sf
@@ -88,6 +91,7 @@ class MainActivity : Activity() {
             addView(dashboard, LinearLayout.LayoutParams(MATCH, 0, 1f))
             addView(airLine, LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(dpv(12), dpv(2), dpv(12), dpv(2)) })
             addView(buttons)
+            addView(adBanner, LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(dpv(12), 0, dpv(12), dpv(3)) })
             addView(statusLine)
         })
 
@@ -103,6 +107,7 @@ class MainActivity : Activity() {
                 statusLine.text = "Car Remote v${BuildConfig.VERSION_NAME}   ·   " +
                     "${CarRemoteService.adbStatus}   ·   ${CarRemoteService.telegramStatus}   ·   Varan7777"
                 renderAir(CarRemoteService.airState)
+                adBanner.render(prefs)
                 delay(3_000)
             }
         }

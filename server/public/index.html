@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Varan · Керування</title>
+    <link rel="stylesheet" href="/admin/admin.css" />
+    <script src="/admin/admin.js" defer></script>
+  </head>
+  <body>
+    <section id="login" class="login">
+      <div class="login-art">
+        <span class="eyebrow">VARAN / CONTROL ROOM</span>
+        <div class="orb">V<span>●</span></div>
+        <h1>Усе своє.<br />Під контролем.</h1>
+        <p>Сайт, бот і підключені авто — в одному місці.</p>
+      </div>
+      <form id="login-form" class="login-card">
+        <span class="eyebrow">ОСОБИСТИЙ ДОСТУП</span>
+        <h2>З поверненням.</h2>
+        <p>
+          Одноразовий код прийде у ваш приватний чат із <b>@Varanb2b_bot</b>.
+        </p>
+        <button id="request-code" type="button" class="primary">
+          Отримати код <span>↗</span></button
+        ><label for="code">Код із Telegram</label
+        ><input
+          id="code"
+          name="code"
+          inputmode="numeric"
+          pattern="[0-9]{6}"
+          maxlength="6"
+          autocomplete="one-time-code"
+          placeholder="000000"
+          required
+        /><button type="submit">Увійти →</button>
+        <p id="login-status" role="status"></p>
+        <a href="/">← На сайт</a>
+      </form>
+    </section>
+    <div id="shell" class="shell" hidden>
+      <aside>
+        <a class="brand" href="/admin/"
+          >varan<span>●</span><small>CONTROL ROOM</small></a
+        >
+        <nav aria-label="Керування">
+          <button data-view="overview">◉ <span>Огляд</span></button
+          ><button data-view="site">⌘ <span>Головна</span></button
+          ><button data-view="byd">↗ <span>Сторінка BYD</span></button
+          ><button data-view="bot">◇ <span>Telegram-бот</span></button
+          ><button data-view="cars">◎ <span>Авто</span></button
+          ><button data-view="owners">♙ <span>Власники</span></button
+          ><button data-view="campaign">▧ <span>Реклама й оплата</span></button
+          ><button data-view="payments">₴ <span>Платежі</span></button
+          ><button data-view="logs">≡ <span>Журнал команд</span></button
+          ><button data-view="audit">↺ <span>Історія змін</span></button>
+        </nav>
+        <div class="aside-bottom">
+          <a href="/" target="_blank" rel="noopener">Відкрити сайт ↗</a
+          ><button id="logout">Вийти</button><small>Лише ваш доступ</small>
+        </div>
+      </aside>
+      <main>
+        <header class="top">
+          <span class="eyebrow"
+            >VARAN.TEAM / <span id="breadcrumb">ОГЛЯД</span></span
+          ><span id="today"></span>
+        </header>
+        <div id="content" aria-live="polite"></div>
+      </main>
+    </div>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <dialog id="preview">
+      <button id="close-preview" aria-label="Закрити">Закрити ×</button
+      ><iframe id="preview-frame" title="Попередній перегляд"></iframe>
+    </dialog>
+  </body>
+</html>

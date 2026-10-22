@@ -1,0 +1,26 @@
+[Unit]
+Description=Varan site control and Car Remote Hub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=varan-hub
+Group=varan-hub
+WorkingDirectory=/srv/varan-hub/current
+EnvironmentFile=/etc/varan-hub.env
+ExecStart=/usr/bin/node src/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+StateDirectory=varan-hub
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

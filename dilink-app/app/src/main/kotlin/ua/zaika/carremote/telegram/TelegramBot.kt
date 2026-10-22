@@ -36,10 +36,10 @@ class TelegramBot(
     private val token: String,
     private val prefs: SharedPreferences,
     private val handle: (chatId: Long, input: String) -> Reply?,
-) {
+) : RemoteBot {
     private var offset = 0L
 
-    suspend fun run(onStatus: (String) -> Unit, onConnected: () -> Unit) {
+    override suspend fun run(onStatus: (String) -> Unit, onConnected: () -> Unit) {
         var connected = false
         while (currentCoroutineContext().isActive) {
             try {
@@ -65,9 +65,9 @@ class TelegramBot(
         }
     }
 
-    fun send(chatId: Long, text: String) = send(chatId, Reply(text))
+    override fun send(chatId: Long, text: String) = send(chatId, Reply(text))
 
-    fun send(chatId: Long, reply: Reply) {
+    override fun send(chatId: Long, reply: Reply) {
         val params = mutableListOf<Pair<String, Any>>("chat_id" to chatId, "text" to reply.text)
         reply.keyboard?.let { params += "reply_markup" to keyboardJson(it) }
         call("sendMessage", *params.toTypedArray())

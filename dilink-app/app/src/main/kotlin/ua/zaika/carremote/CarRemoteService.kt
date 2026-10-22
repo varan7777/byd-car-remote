@@ -40,6 +40,8 @@ import ua.zaika.carremote.car.ShutdownReport
 import ua.zaika.carremote.car.TripLog
 import ua.zaika.carremote.car.TripTracker
 import ua.zaika.carremote.telegram.TelegramBot
+import ua.zaika.carremote.telegram.RemoteBot
+import ua.zaika.carremote.telegram.HubBot
 import ua.zaika.carremote.ui.WidgetOverlay
 import ua.zaika.carremote.ui.SideCameraOverlay
 
@@ -160,20 +162,21 @@ class CarRemoteService : Service() {
             }
         }
 
+        val prefs = getSharedPreferences("carremote", Context.MODE_PRIVATE)
+        val hubMode = prefs.getBoolean(HubBot.ENABLED, true)
         val token = BuildConfig.TELEGRAM_BOT_TOKEN
-        val owner = BuildConfig.OWNER_CHAT_ID
-        if (token.isBlank()) {
+        var owner = if (hubMode) prefs.getLong(HubBot.OWNER, 0) else BuildConfig.OWNER_CHAT_ID
+        if (!hubMode && token.isBlank()) {
             updateStatus("Telegram: немає TELEGRAM_BOT_TOKEN у secrets.properties")
             return
         }
-        val prefs = getSharedPreferences("carremote", Context.MODE_PRIVATE)
         val router = CommandRouter(car, owner, prefs)
-        val bot = TelegramBot(token, prefs, router::handle)
+        val bot: RemoteBot = if (hubMode) HubBot(prefs, router::handle) else TelegramBot(token, prefs, router::handle)
 
         // Shell-uid watchdog: survives ignition-off, restarts us on wake, and sends the
         // "car switched off" message itself (the app is killed too fast to do it). It needs
         // the owner chat; without it we have no one to message anyway.
-        val watchdog = if (owner != 0L) Watchdog(adb, token, owner) else null
+        var watchdog = if (!hubMode && owner != 0L) Watchdog(adb, token, owner) else null
         scope.launch {
             watchdog?.run { install(); restart() }
             // The watchdog dies with a full power-down; this anchor brings us back after one.
@@ -182,7 +185,14 @@ class CarRemoteService : Service() {
 
         // skipBacklog (inside run) still drops stale commands; the greeting is sent by the
         // reachability loop instead, so it also fires when the car wakes from sleep.
-        scope.launch { bot.run(::updateStatus) {} }
+        scope.launch { bot.run(::updateStatus) {
+            if (hubMode) {
+                owner = prefs.getLong(HubBot.OWNER, 0)
+                router.setOwner(owner)
+                watchdog = Watchdog(adb, prefs.getString(HubBot.TOKEN, "").orEmpty(), owner, hub = true)
+                runCatching { watchdog?.install(); watchdog?.restart() }
+            }
+        } }
 
         // DiLink does not deliver boot broadcasts to us and freezes/kills the app on ignition
         // off. So instead of relying on autostart, we watch the car link: every time it comes
@@ -207,14 +217,14 @@ class CarRemoteService : Service() {
         }
 
         // Push charging / low-battery alerts to the owner on state changes.
-        if (owner != 0L) {
+        if (owner != 0L || hubMode) {
             val notifier = Notifier(car) { router.lowSoc() }
             val trip = TripTracker()
             val autos = Automations()
             scope.launch {
                 var ticks = 0
                 while (isActive) {
-                    if (car.isReachable()) {
+                    if (car.isReachable() && owner != 0L) {
                         for (msg in notifier.poll()) runCatching { bot.send(owner, msg) }
                         // Keep the watchdog's parting message fresh (with the current trip),
                         // and respawn the watchdog if it died.

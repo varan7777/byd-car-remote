@@ -25,9 +25,10 @@ import java.util.Locale
  */
 class CommandRouter(
     private val car: Autoservice,
-    private val ownerChatId: Long,
+    @Volatile private var ownerChatId: Long,
     private val prefs: SharedPreferences,
 ) {
+    fun setOwner(chatId: Long) { ownerChatId = chatId }
     /** Greeting that also (re)shows the persistent keyboard. */
     fun menu(header: String) = Reply(header, ReplyKeyboard(MAIN_LABELS))
 

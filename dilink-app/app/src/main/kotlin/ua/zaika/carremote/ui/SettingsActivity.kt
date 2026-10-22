@@ -22,6 +22,7 @@ import ua.zaika.carremote.CarRemoteService
 import ua.zaika.carremote.adb.AdbShell
 import ua.zaika.carremote.car.Autoservice
 import ua.zaika.carremote.car.Fids
+import ua.zaika.carremote.telegram.HubBot
 
 /** App settings, grouped Apple-style: keep-awake, reminders, widget, cameras, air, charging tariffs. */
 class SettingsActivity : Activity() {
@@ -40,6 +41,29 @@ class SettingsActivity : Activity() {
             text = "Налаштування"; setTextColor(Ui.textc(context)); textSize = 30f; typeface = sfBold
             setPadding(dpv(4), 0, 0, dpv(14))
         })
+
+        root.addView(header("TELEGRAM / VARAN HUB"))
+        root.addView(card(
+            inputRow("Код прив’язки з @Varanbyd_bot", HubBot.CODE, "6 цифр", numeric = true),
+            TextView(this).apply {
+                text = if (prefs.getString(HubBot.TOKEN, "").isNullOrBlank()) "Прив’язати авто →" else "Авто прив’язане · ввести новий код →"
+                setTextColor(Ui.ORANGE); textSize = 16f; typeface = sfSemibold
+                setPadding(dpv(16), dpv(16), dpv(16), dpv(16))
+                setOnClickListener {
+                    val code = prefs.getString(HubBot.CODE, "").orEmpty()
+                    if (!code.matches(Regex("[0-9]{6}"))) {
+                        android.widget.Toast.makeText(this@SettingsActivity, "Введіть 6 цифр із бота", android.widget.Toast.LENGTH_LONG).show()
+                    } else {
+                        prefs.edit().putBoolean(HubBot.ENABLED, true).remove(HubBot.TOKEN).remove(HubBot.OWNER).remove(HubBot.CONFIG).apply()
+                        stopService(Intent(this@SettingsActivity, CarRemoteService::class.java))
+                        CarRemoteService.start(this@SettingsActivity)
+                        android.widget.Toast.makeText(this@SettingsActivity, "Підключаємо авто… Статус — на головному екрані", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            },
+        ))
+        root.addView(note("Відкрийте @Varanbyd_bot у Telegram → поділіться своїм номером → введіть отриманий код. " +
+            "Реклама вимикається назавжди після разової оплати за посиланням у банері або командою /noads у боті."))
 
         root.addView(header("СИСТЕМА"))
         root.addView(card(

@@ -1,0 +1,219 @@
+{
+  "home": {
+    "name": "Артем Заїка",
+    "center": {
+      "name": "Артем Заїка",
+      "sub": "Мої сервіси",
+      "mono": "АЗ",
+      "photo": "/img/photo-v2.jpg"
+    },
+    "services": [
+      {
+        "name": "B2Bell",
+        "sub": "b2bell.com",
+        "logo": "/img/b2bell.svg",
+        "url": "https://b2bell.com",
+        "id": "service-1",
+        "visible": true
+      },
+      {
+        "name": "PDF-сервіс",
+        "sub": "pdfs.b2bell.com",
+        "logo": "/img/pdfs-orange.svg",
+        "url": "https://pdfs.b2bell.com/",
+        "id": "service-2",
+        "visible": true
+      },
+      {
+        "name": "РІСТ",
+        "sub": "Навчання продажам без тиску",
+        "icon": "grow",
+        "url": "",
+        "ti": true,
+        "id": "service-3",
+        "visible": true
+      },
+      {
+        "name": "AI-автоматизація",
+        "sub": "AI для бізнесу і продажів",
+        "icon": "ai",
+        "url": "",
+        "id": "service-4",
+        "visible": true
+      },
+      {
+        "name": "Контакти",
+        "sub": "Як зі мною звʼязатися",
+        "icon": "phone",
+        "url": "",
+        "id": "service-5",
+        "visible": true
+      },
+      {
+        "name": "Byd Car Remote",
+        "sub": "Керування BYD з екрана й Telegram",
+        "icon": "car",
+        "page": "/byd/",
+        "id": "service-6",
+        "visible": true
+      },
+      {
+        "name": "STELIA",
+        "sub": "stelia.vn.ua",
+        "logo": "/img/stelia.svg",
+        "url": "https://stelia.vn.ua/",
+        "id": "service-7",
+        "visible": true
+      }
+    ]
+  },
+  "byd": {
+    "title": "Car Remote",
+    "version": "v0.21.3 · Android APK · DiLink 5.0 / BYD Song Plus",
+    "apkUrl": "/byd/CarRemote-0.21.3.apk",
+    "telegramUrl": "https://t.me/Varanbyd_bot",
+    "githubUrl": "https://github.com/varan7777/byd-car-remote",
+    "screenshots": [
+      {
+        "src": "/byd/img/dashboard.jpg",
+        "alt": "Дашборд / Dashboard"
+      },
+      {
+        "src": "/byd/img/map.jpg",
+        "alt": "Карта / Map"
+      },
+      {
+        "src": "/byd/img/trips.jpg",
+        "alt": "Поїздки / Trips"
+      },
+      {
+        "src": "/byd/img/settings.jpg",
+        "alt": "Налаштування / Settings"
+      },
+      {
+        "src": "/byd/img/tariffs.jpg",
+        "alt": "Тарифи / Tariffs"
+      }
+    ],
+    "uk": {
+      "tag": "Контроль електромобіля BYD з екрана голови (DiLink) і з Telegram.",
+      "note": "Важливо: на голові має бути увімкнений (розблокований) ADB — бездротове налагодження.",
+      "features": [
+        {
+          "icon": "🔋",
+          "title": "Дашборд",
+          "text": "на екрані авто — заряд, здоров'я та темп. батареї, 12V, потужність, пробіг, двері/вікна/замок/люк, тиск шин, клімат"
+        },
+        {
+          "icon": "💬",
+          "title": "Керування через Telegram",
+          "text": "статус, клімат on/off і температура, замок/розблокування, обігрів скла, вікна, люк, багажник, пошук авто (аварійка), поріг заряду"
+        },
+        {
+          "icon": "🌬️",
+          "title": "Очищення повітря",
+          "text": "в салоні (разовий цикл)"
+        },
+        {
+          "icon": "🛡️",
+          "title": "Карта тривог і БпЛА",
+          "text": "(NEPTUN) — тривога по твоєму регіону, рух загроз, сирена + українська озвучка, кольорова індикація (зелений/жовтий/червоний)"
+        },
+        {
+          "icon": "📹",
+          "title": "Камери сліпих зон",
+          "text": "бокова камера при поворотнику, камера при відкритті дверей (показ на планшеті)"
+        },
+        {
+          "icon": "📟",
+          "title": "Плаваючий віджет",
+          "text": "заряд/темп/12V поверх будь‑якого застосунку"
+        },
+        {
+          "icon": "🔔",
+          "title": "Розумні нагадування",
+          "text": "перегрів батареї, «авто лишилось відкритим»"
+        },
+        {
+          "icon": "📈",
+          "title": "Поїздки",
+          "text": "повний журнал з вартістю за твоїм тарифом (дім + швидкі зарядки)"
+        },
+        {
+          "icon": "🌗",
+          "title": "Світла/темна тема",
+          "text": "автоматично під тему голови"
+        }
+      ],
+      "footnote": "Частина функцій керування залежить від версії DiLink і комплектації авто — якщо адреса не підтримується, функція просто не спрацює (без шкоди).",
+      "privacyTitle": "Приватність — «кожному своє авто»",
+      "privacy": "Керування йде через бота @Varanbyd_bot. Своє авто привʼязуєш кодом — і бачиш та керуєш лише ним. Ніхто не має доступу до чужого авто.",
+      "steps": [
+        "Увімкни ADB на голові (Налаштування → для розробників → бездротове налагодження).",
+        "Завантаж APK і встанови на голову.",
+        "Відкрий @Varanbyd_bot у Telegram → привʼяжи авто кодом.",
+        "Готово — керуй своїм авто з телефону й з екрана голови."
+      ]
+    },
+    "en": {
+      "tag": "Control your BYD EV from the head‑unit (DiLink) screen and Telegram.",
+      "note": "Important: the head unit must have ADB (wireless debugging) enabled.",
+      "features": [
+        {
+          "icon": "🔋",
+          "title": "Dashboard",
+          "text": "on the car screen — charge, battery health & temp, 12V, power, mileage, doors/windows/lock/sunroof, tyre pressure, climate"
+        },
+        {
+          "icon": "💬",
+          "title": "Telegram control",
+          "text": "status, climate on/off & temperature, lock/unlock, defrost, windows, sunroof, trunk, find‑car (hazards), low‑battery threshold"
+        },
+        {
+          "icon": "🌬️",
+          "title": "Cabin air purification",
+          "text": "one‑shot clean cycle"
+        },
+        {
+          "icon": "🛡️",
+          "title": "Air‑raid & UAV map",
+          "text": "(NEPTUN) — alerts for your region, moving threats, siren + Ukrainian voice, colour‑coded (green/amber/red)"
+        },
+        {
+          "icon": "📹",
+          "title": "Blind‑spot cameras",
+          "text": "side camera on the turn signal, camera on door‑open (shown on the tablet)"
+        },
+        {
+          "icon": "📟",
+          "title": "Floating widget",
+          "text": "charge/temp/12V over any app"
+        },
+        {
+          "icon": "🔔",
+          "title": "Smart reminders",
+          "text": "battery overheating, “car left open”"
+        },
+        {
+          "icon": "📈",
+          "title": "Trips",
+          "text": "full journal with cost by your tariff (home + fast charging)"
+        },
+        {
+          "icon": "🌗",
+          "title": "Light/dark theme",
+          "text": "follows the head unit"
+        }
+      ],
+      "footnote": "Some control functions depend on the DiLink version and trim — an unsupported address simply does nothing (safe).",
+      "privacyTitle": "Privacy — “each to their own car”",
+      "privacy": "Control runs through the @Varanbyd_bot bot. You pair your car with a code and can see and control only it — no one has access to anyone else’s car.",
+      "steps": [
+        "Enable ADB on the head unit (Developer options → wireless debugging).",
+        "Download the APK and install it on the head unit.",
+        "Open @Varanbyd_bot in Telegram → pair your car with a code.",
+        "Done — control your car from your phone and the head‑unit screen."
+      ]
+    }
+  }
+}

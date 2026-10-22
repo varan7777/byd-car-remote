@@ -15,11 +15,12 @@ import ua.zaika.carremote.adb.AdbShell
  * The app keeps a fresh snapshot body in [PARKED_PATH]; the watchdog only adds the time.
  * The template uses `§` wherever the shell needs `$`, so Kotlin does not interpolate it.
  */
-class Watchdog(private val adb: AdbShell, token: String, chatId: Long) {
+class Watchdog(private val adb: AdbShell, token: String, chatId: Long, hub: Boolean = false) {
 
     private val script = SCRIPT
         .replace("@TOKEN@", token)
         .replace("@CHAT@", chatId.toString())
+        .replace("@HUB@", if (hub) "1" else "0")
         .replace("§", "$")
 
     /** Writes the script to the device (base64 to survive quoting) and makes it executable. */
@@ -73,6 +74,7 @@ class Watchdog(private val adb: AdbShell, token: String, chatId: Long) {
             PKG=ua.zaika.carremote
             TOKEN='@TOKEN@'
             CHAT='@CHAT@'
+            HUB='@HUB@'
             PARKED=$PARKED_PATH
             KEEP_FILE=$KEEP_PATH
             LOC_FILE=$LOC_PATH
@@ -104,9 +106,13 @@ class Watchdog(private val adb: AdbShell, token: String, chatId: Long) {
                   if [ -z "§(pidof §PKG)" ] && [ "§keep" != 1 ] && [ "§(dumpsys power 2>/dev/null | grep -c 'mWakefulness=Awake')" = 0 ] && [ -s "§PARKED" ]; then
                     MSG="🅿️ Авто заглушено о §(date +%H:%M)
             §(cat §PARKED)"
-                    curl -s --max-time 15 "https://api.telegram.org/bot§TOKEN/sendMessage" --data-urlencode "chat_id=§CHAT" --data-urlencode "text=§MSG" >/dev/null 2>&1
+                    if [ "§HUB" = 1 ]; then
+                      curl -s --max-time 15 "https://varan.team/api/car/notification" -H "Authorization: Bearer §TOKEN" --data-urlencode "text=§MSG" >/dev/null 2>&1
+                    else
+                      curl -s --max-time 15 "https://api.telegram.org/bot§TOKEN/sendMessage" --data-urlencode "chat_id=§CHAT" --data-urlencode "text=§MSG" >/dev/null 2>&1
+                    fi
                     LOC=§(cat §LOC_FILE 2>/dev/null)
-                    if [ -n "§LOC" ]; then
+                    if [ -n "§LOC" ] && [ "§HUB" != 1 ]; then
                       curl -s --max-time 15 "https://api.telegram.org/bot§TOKEN/sendLocation" --data-urlencode "chat_id=§CHAT" -d "latitude=§{LOC%% *}" -d "longitude=§{LOC##* }" >/dev/null 2>&1
                     fi
                     cooldown=§((now + 45))

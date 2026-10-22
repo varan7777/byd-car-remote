@@ -10,6 +10,7 @@ val secrets = Properties().apply {
     val file = rootProject.file("secrets.properties")
     if (file.exists()) file.inputStream().use { load(it) }
 }
+val legacyTelegram = providers.gradleProperty("legacyTelegram").orNull == "true"
 
 android {
     namespace = "ua.zaika.carremote"
@@ -21,13 +22,13 @@ android {
         // DiLink 4.0 runs Android 10 (API 29). Staying on 29 avoids the newer
         // background-start and foreground-service-type restrictions.
         targetSdk = 29
-        versionCode = 59
-        versionName = "0.21.3"
+        versionCode = 60
+        versionName = "0.22.0"
 
         ndk { abiFilters += "arm64-v8a" }
 
-        buildConfigField("String", "TELEGRAM_BOT_TOKEN", "\"${secrets.getProperty("TELEGRAM_BOT_TOKEN", "")}\"")
-        buildConfigField("long", "OWNER_CHAT_ID", "${secrets.getProperty("OWNER_CHAT_ID", "0")}L")
+        buildConfigField("String", "TELEGRAM_BOT_TOKEN", "\"${if (legacyTelegram) secrets.getProperty("TELEGRAM_BOT_TOKEN", "") else ""}\"")
+        buildConfigField("long", "OWNER_CHAT_ID", "${if (legacyTelegram) secrets.getProperty("OWNER_CHAT_ID", "0") else "0"}L")
     }
 
     buildFeatures { buildConfig = true }
@@ -47,6 +48,7 @@ android {
 }
 
 dependencies {
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.lsposed.hiddenapibypass:hiddenapibypass:4.3")
     testImplementation("junit:junit:4.13.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
