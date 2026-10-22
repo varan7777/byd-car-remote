@@ -185,6 +185,8 @@ class CarRemoteService : Service() {
 
         // skipBacklog (inside run) still drops stale commands; the greeting is sent by the
         // reachability loop instead, so it also fires when the car wakes from sleep.
+        // App updates released in the varan.team admin: just look, the owner decides in Settings.
+        scope.launch { while (isActive) { runCatching { ua.zaika.carremote.update.Updater.check(prefs) }; delay(6 * 3_600_000L) } }
         scope.launch { bot.run(::updateStatus) {
             if (hubMode) {
                 owner = prefs.getLong(HubBot.OWNER, 0)

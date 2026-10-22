@@ -34,6 +34,18 @@ class AdbShell(context: Context) : AutoCloseable {
         null
     }
 
+    /** Copies a local file onto the head unit (e.g. an update APK into /data/local/tmp). */
+    @Synchronized
+    fun push(file: File, remotePath: String): Boolean = try {
+        (dadb ?: open().also { dadb = it }).push(file, remotePath, 420 /* 0644 */, file.lastModified())
+        lastError = null
+        true
+    } catch (e: Exception) {
+        lastError = e.message ?: e.javaClass.simpleName
+        close()
+        false
+    }
+
     private fun open(): Dadb {
         if (!privateKey.exists()) AdbKeyPair.generate(privateKey, publicKey)
         return Dadb.create(HOST, PORT, AdbKeyPair.read(privateKey, publicKey), CONNECT_TIMEOUT_MS, SOCKET_TIMEOUT_MS)

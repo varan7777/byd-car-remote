@@ -53,6 +53,9 @@ class SettingsActivity : Activity() {
         root.addView(pairCard())
         root.addView(note("Реклама вимикається назавжди після разової оплати за посиланням у банері або командою /noads у боті."))
 
+        root.addView(header("ОНОВЛЕННЯ"))
+        root.addView(updateCard())
+
         root.addView(header("СИСТЕМА"))
         root.addView(card(
             switchRow("🅿️  Доступність на стоянці", "keep_awake", false),
@@ -191,6 +194,46 @@ class SettingsActivity : Activity() {
         return card(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             listOf(status, hint, fieldWrap, action).forEach { addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)) }
+        })
+    }
+
+    // --- App updates (released from the varan.team admin) ---
+
+    private fun updateCard(): View {
+        val status = TextView(this).apply { textSize = 16f; typeface = sfSemibold; setPadding(dpv(16), dpv(16), dpv(16), dpv(4)) }
+        val notes = TextView(this).apply { setTextColor(Ui.text2c(context)); textSize = 13f; typeface = sf; setPadding(dpv(16), dpv(2), dpv(16), dpv(6)) }
+        val action = TextView(this).apply { setTextColor(Ui.ORANGE); textSize = 16f; typeface = sfSemibold; setPadding(dpv(16), dpv(12), dpv(16), dpv(16)) }
+        var busy = false
+        fun render(msg: String? = null, color: Int = Ui.textc(this)) {
+            val rel = ua.zaika.carremote.update.Updater.available(prefs)
+            if (msg != null) { status.text = msg; status.setTextColor(color) }
+            else if (rel != null) { status.text = "Доступна версія ${rel.name}"; status.setTextColor(Ui.ORANGE) }
+            else { status.text = "Версія ${ua.zaika.carremote.BuildConfig.VERSION_NAME} · встановлено останню"; status.setTextColor(Ui.GREEN) }
+            notes.text = rel?.notes.orEmpty(); notes.visibility = if (rel != null && rel.notes.isNotBlank()) View.VISIBLE else View.GONE
+            action.text = when { busy -> "Зачекайте…"; rel != null -> "Оновити до ${rel.name} →"; else -> "Перевірити оновлення" }
+            action.alpha = if (busy) 0.5f else 1f
+        }
+        fun work(job: () -> Unit) {
+            if (busy) return
+            busy = true; render(status.text.toString(), status.currentTextColor)
+            Thread {
+                try { job() }
+                catch (e: Exception) { runOnUiThread { busy = false; render(e.message ?: "Не вдалося — перевірте інтернет", Ui.RED) } }
+            }.start()
+        }
+        action.setOnClickListener {
+            val rel = ua.zaika.carremote.update.Updater.available(prefs)
+            if (rel == null) work {
+                val found = ua.zaika.carremote.update.Updater.check(prefs)
+                runOnUiThread { busy = false; if (found == null) render("Версія ${ua.zaika.carremote.BuildConfig.VERSION_NAME} · встановлено останню", Ui.GREEN) else render() }
+            } else work {
+                ua.zaika.carremote.update.Updater.install(applicationContext, rel) { p -> runOnUiThread { render(p, Ui.ORANGE) } }
+            }
+        }
+        render()
+        return card(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            listOf(status, notes, action).forEach { addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)) }
         })
     }
 

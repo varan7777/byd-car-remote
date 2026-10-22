@@ -75,7 +75,7 @@ class HubBot(
                         onStatus("Hub: введіть код прив’язки у налаштуваннях")
                         delay(3_000); continue
                     }
-                    val msg = post("/api/car/poll", JSONObject().put("wait", 0), token)
+                    val msg = post("/api/car/poll", JSONObject().put("wait", 0).put("app", ua.zaika.carremote.BuildConfig.VERSION_CODE), token)
                     val owner = msg.optLong("chatId")
                     if (owner <= 0) throw IOException("Invalid owner")
                     if (prefs.getLong(OWNER, 0) != owner) prefs.edit().putLong(OWNER, owner).apply()
