@@ -3,6 +3,13 @@ package ua.zaika.carremote.ui
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
+import android.graphics.drawable.GradientDrawable
+import android.os.Handler
+import android.os.Looper
+import android.text.InputFilter
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Bundle
@@ -43,27 +50,8 @@ class SettingsActivity : Activity() {
         })
 
         root.addView(header("TELEGRAM / VARAN HUB"))
-        root.addView(card(
-            inputRow("Код прив’язки з @Varanbyd_bot", HubBot.CODE, "6 цифр", numeric = true),
-            TextView(this).apply {
-                text = if (prefs.getString(HubBot.TOKEN, "").isNullOrBlank()) "Прив’язати авто →" else "Авто прив’язане · ввести новий код →"
-                setTextColor(Ui.ORANGE); textSize = 16f; typeface = sfSemibold
-                setPadding(dpv(16), dpv(16), dpv(16), dpv(16))
-                setOnClickListener {
-                    val code = prefs.getString(HubBot.CODE, "").orEmpty()
-                    if (!code.matches(Regex("[0-9]{6}"))) {
-                        android.widget.Toast.makeText(this@SettingsActivity, "Введіть 6 цифр із бота", android.widget.Toast.LENGTH_LONG).show()
-                    } else {
-                        prefs.edit().putBoolean(HubBot.ENABLED, true).remove(HubBot.TOKEN).remove(HubBot.OWNER).remove(HubBot.CONFIG).apply()
-                        stopService(Intent(this@SettingsActivity, CarRemoteService::class.java))
-                        CarRemoteService.start(this@SettingsActivity)
-                        android.widget.Toast.makeText(this@SettingsActivity, "Підключаємо авто… Статус — на головному екрані", android.widget.Toast.LENGTH_LONG).show()
-                    }
-                }
-            },
-        ))
-        root.addView(note("Відкрийте @Varanbyd_bot у Telegram → поділіться своїм номером → введіть отриманий код. " +
-            "Реклама вимикається назавжди після разової оплати за посиланням у банері або командою /noads у боті."))
+        root.addView(pairCard())
+        root.addView(note("Реклама вимикається назавжди після разової оплати за посиланням у банері або командою /noads у боті."))
 
         root.addView(header("СИСТЕМА"))
         root.addView(card(
@@ -104,6 +92,105 @@ class SettingsActivity : Activity() {
         setContentView(ScrollView(this).apply {
             setBackgroundColor(Ui.bg(this@SettingsActivity))
             addView(root)
+        })
+    }
+
+    // --- Telegram pairing ---
+
+    private val ui = Handler(Looper.getMainLooper())
+    private var pairWatch: SharedPreferences.OnSharedPreferenceChangeListener? = null
+
+    override fun onDestroy() {
+        pairWatch?.let { prefs.unregisterOnSharedPreferenceChangeListener(it) }
+        ui.removeCallbacksAndMessages(null)
+        super.onDestroy()
+    }
+
+    /**
+     * Paired: a plain "Авто прив’язано" with a «Перепривʼязати» button (lost the bot chat, new Telegram).
+     * Not paired / re-pairing: a visible code field. The code is handed to the hub only on the button,
+     * the old pairing stays until the hub accepts the new code, and the result is shown right here.
+     */
+    private fun pairCard(): View {
+        val paired = { !prefs.getString(HubBot.TOKEN, "").isNullOrBlank() }
+        val status = TextView(this).apply { textSize = 16f; typeface = sfSemibold; setPadding(dpv(16), dpv(16), dpv(16), dpv(6)) }
+        val hint = TextView(this).apply {
+            text = "Візьміть код у @Varanbyd_bot: /start → «Поділитися номером». Код діє 10 хвилин."
+            setTextColor(Ui.text2c(context)); textSize = 13f; typeface = sf; setPadding(dpv(16), 0, dpv(16), dpv(10))
+        }
+        val frame = GradientDrawable().apply { cornerRadius = dpf(12f); setColor(Ui.cardHi(this@SettingsActivity)) }
+        val field = EditText(this).apply {
+            this.hint = "000000"; gravity = Gravity.CENTER
+            setTextColor(Ui.textc(context)); setHintTextColor(Ui.text2c(context))
+            textSize = 26f; typeface = sfBold; letterSpacing = 0.35f
+            inputType = InputType.TYPE_CLASS_NUMBER; filters = arrayOf(InputFilter.LengthFilter(6))
+            imeOptions = EditorInfo.IME_ACTION_DONE or EditorInfo.IME_FLAG_NO_EXTRACT_UI
+            isCursorVisible = true; isFocusableInTouchMode = true
+            if (android.os.Build.VERSION.SDK_INT >= 29) textCursorDrawable = GradientDrawable().apply { setColor(Ui.ORANGE); setSize(dpv(2), dpv(30)) }
+            background = frame; setPadding(dpv(12), dpv(12), dpv(12), dpv(12))
+            frame.setStroke(dpv(2), Ui.sepc(context))
+            setOnFocusChangeListener { _, focused -> frame.setStroke(dpv(2), if (focused) Ui.ORANGE else Ui.sepc(this@SettingsActivity)) }
+        }
+        val fieldWrap = LinearLayout(this).apply { setPadding(dpv(16), dpv(4), dpv(16), dpv(4)); addView(field, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)) }
+        val action = TextView(this).apply { setTextColor(Ui.ORANGE); textSize = 16f; typeface = sfSemibold; setPadding(dpv(16), dpv(14), dpv(16), dpv(16)) }
+        var editing = false
+        var pending = false
+
+        fun hideKeyboard() {
+            field.clearFocus()
+            (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(field.windowToken, 0)
+        }
+        fun show(text: String, color: Int) { status.text = text; status.setTextColor(color) }
+        fun render() {
+            val form = !paired() || editing
+            hint.visibility = if (form) View.VISIBLE else View.GONE
+            fieldWrap.visibility = if (form) View.VISIBLE else View.GONE
+            action.text = when { pending -> "Прив’язуємо…"; form -> "Прив’язати авто →"; else -> "Перепривʼязати →" }
+            action.alpha = if (pending) 0.5f else 1f
+            if (!pending && status.text.isNullOrEmpty()) {
+                if (paired()) show("✅ Авто прив’язано до Telegram", Ui.GREEN) else show("Авто ще не прив’язане", Ui.text2c(this))
+            }
+        }
+        fun finish(text: String, color: Int, ok: Boolean) {
+            if (!pending) return
+            pending = false; ui.removeCallbacksAndMessages(null)
+            if (ok) { editing = false; field.setText("") }
+            show(text, color); render()
+        }
+        fun submit() {
+            if (pending) return
+            val code = field.text.toString().filter(Char::isDigit)
+            if (code.length != 6) {
+                show(if (code.isEmpty()) "Введіть код із бота" else "Потрібно 6 цифр — зараз ${code.length}", Ui.RED)
+                field.requestFocus(); return
+            }
+            hideKeyboard()
+            pending = true; show("Прив’язуємо авто…", Ui.ORANGE); render()
+            // The current pairing keeps working until the hub accepts the new code.
+            prefs.edit().putBoolean(HubBot.ENABLED, true).putString(HubBot.CODE, code).apply()
+            CarRemoteService.start(this)
+            ui.postDelayed({ finish("Сервер не відповів. Перевірте інтернет і спробуйте ще раз.", Ui.RED, false); prefs.edit().remove(HubBot.CODE).apply() }, 40_000)
+        }
+        pairWatch = SharedPreferences.OnSharedPreferenceChangeListener { p, key ->
+            if (!pending) return@OnSharedPreferenceChangeListener
+            ui.post {
+                when {
+                    key == HubBot.TOKEN && !p.getString(HubBot.TOKEN, "").isNullOrBlank() ->
+                        finish("✅ Авто прив’язано. Підтвердження прийде в Telegram.", Ui.GREEN, true)
+                    key == HubBot.CODE && p.getString(HubBot.CODE, "").isNullOrBlank() && p.getString(HubBot.PAIR_RESULT, "") == "failed" ->
+                        finish("Код неправильний або прострочений. Візьміть новий у боті.", Ui.RED, false)
+                }
+            }
+        }.also { prefs.registerOnSharedPreferenceChangeListener(it) }
+        field.setOnEditorActionListener { _, id, _ -> if (id == EditorInfo.IME_ACTION_DONE) { submit(); true } else false }
+        action.setOnClickListener {
+            if (paired() && !editing && !pending) { editing = true; status.text = ""; show("Введіть новий код із бота", Ui.textc(this)); render(); field.requestFocus() }
+            else submit()
+        }
+        render()
+        return card(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            listOf(status, hint, fieldWrap, action).forEach { addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)) }
         })
     }
 

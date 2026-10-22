@@ -54,22 +54,26 @@ class HubBot(
                 val token = prefs.getString(TOKEN, "").orEmpty()
                 val code = prefs.getString(CODE, "").orEmpty()
                 try {
-                    if (token.isBlank()) {
-                        if (!code.matches(Regex("[0-9]{6}"))) {
-                            onStatus("Hub: введіть код прив’язки у налаштуваннях")
-                            delay(3_000); continue
-                        }
+                    if (code.matches(Regex("[0-9]{6}"))) {
+                        // A new code (first pairing or re-pairing): the old token stays until the hub accepts it.
                         onStatus("Hub: прив’язка…")
                         val msg = post("/api/car/pair", JSONObject().put("code", code))
                         if (msg.optString("type") != "paired") {
-                            prefs.edit().remove(CODE).apply()
-                            onStatus("Hub: код неправильний або прострочений"); continue
+                            prefs.edit().putString(PAIR_RESULT, "failed").remove(CODE).apply()
+                            onStatus(if (token.isBlank()) "Hub: код неправильний або прострочений" else "Hub: новий код не підійшов, лишаю попередню прив’язку")
+                            continue
                         }
                         val owner = msg.optLong("chatId")
                         if (owner <= 0) throw IOException("Invalid owner")
-                        prefs.edit().putLong(OWNER, owner).putString(TOKEN, msg.getString("carToken")).remove(CODE).apply()
+                        prefs.edit().putString(PAIR_RESULT, "ok").putLong(OWNER, owner)
+                            .putString(TOKEN, msg.getString("carToken")).remove(CODE).apply()
                         saveConfig(msg.optJSONObject("config"))
+                        announced = false
                         continue
+                    }
+                    if (token.isBlank()) {
+                        onStatus("Hub: введіть код прив’язки у налаштуваннях")
+                        delay(3_000); continue
                     }
                     val msg = post("/api/car/poll", JSONObject().put("wait", 12), token)
                     val owner = msg.optLong("chatId")
@@ -131,5 +135,6 @@ class HubBot(
         const val CODE = "hub_pair_code"
         const val CONFIG = "hub_config"
         const val ENABLED = "hub_enabled"
+        const val PAIR_RESULT = "hub_pair_result"
     }
 }
