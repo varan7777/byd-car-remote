@@ -7,7 +7,12 @@
 <a href="../../releases/latest"><img alt="Download APK" src="https://img.shields.io/badge/⬇_Завантажити_APK-Download-30D158?style=for-the-badge"></a>
 &nbsp;
 <a href="https://t.me/Varanbyd_bot"><img alt="Telegram bot" src="https://img.shields.io/badge/Telegram-@Varanbyd__bot-0A84FF?style=for-the-badge&logo=telegram&logoColor=white"></a>
+&nbsp;
+<a href="https://t.me/bydcarremote"><img alt="Discussion group" src="https://img.shields.io/badge/Група-обговорення_і_пропозиції-FF5A1F?style=for-the-badge&logo=telegram&logoColor=white"></a>
 </p>
+
+💬 Питання, пропозиції й звіти про роботу на інших моделях — у групі **[t.me/bydcarremote](https://t.me/bydcarremote)**.
+Questions, ideas and reports from other models — in the group **[t.me/bydcarremote](https://t.me/bydcarremote)**.
 
 > [!IMPORTANT]
 > На голові має бути **увімкнений (розблокований) ADB** — бездротове налагодження.
