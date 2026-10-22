@@ -34,6 +34,10 @@ object Fids {
     const val CHARGING_BMS_STATE = 876609560 // int: 1 charging, 2 finished, 13 paused
     const val HV_VOLTAGE = 1145045000 // int, V (high-voltage pack). Verified on Song Plus.
     const val HV_CURRENT = 1145045016 // float, A (− = into battery). Verified on Song Plus.
+    // Stop/resume charging. CHARGE_STOP_CMD: write 1 = stop; 0 = resume (resume still to be
+    // verified on-car). CHARGE_STOP_SIGN is the "charging stopped" flag.
+    const val CHARGE_STOP_CMD = 924850192  // dev 1009, int command
+    const val CHARGE_STOP_SIGN = 584067088 // dev 1009, int status
 
     // Engine, dev 1012
     const val ENGINE_POWER = 339738656 // int, kW: + drawing, − regen or charging

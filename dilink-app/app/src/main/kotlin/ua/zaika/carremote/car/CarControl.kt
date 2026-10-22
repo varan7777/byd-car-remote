@@ -52,6 +52,11 @@ object Controls {
         verify = Control.Verify(Fids.DEV_CLIMATE, Fids.QUICK_CLEAN_AIR, 1),
     )
 
+    // Stop / resume charging (only meaningful when the cable is connected). No immediate verify:
+    // the BMS state takes a few seconds to settle, so we just report the command was sent.
+    val CHARGE_STOP = Control("charge_stop", "⏸ Зупинити зарядку", Fids.DEV_CHARGING, Fids.CHARGE_STOP_CMD, 1)
+    val CHARGE_START = Control("charge_start", "⚡ Почати зарядку", Fids.DEV_CHARGING, Fids.CHARGE_STOP_CMD, 0)
+
     // Moving parts — gated to Park.
     val SUNROOF_OPEN = Control("sunroof_open", "☀️ Люк відкрити", Fids.DEV_BODYWORK, Fids.SUNROOF_CTRL, 1, needsPark = true)
     val SUNROOF_CLOSE = Control("sunroof_close", "☀️ Люк закрити", Fids.DEV_BODYWORK, Fids.SUNROOF_CTRL, 2, needsPark = true)
@@ -68,6 +73,6 @@ object Controls {
 
     val byId: Map<String, Control> = listOf(
         CLIMATE_ON, CLIMATE_OFF, LOCK, UNLOCK, DEFROST_ON, DEFROST_OFF,
-        SUNROOF_OPEN, SUNROOF_CLOSE, TRUNK_OPEN, TRUNK_CLOSE, CLEAN_AIR,
+        SUNROOF_OPEN, SUNROOF_CLOSE, TRUNK_OPEN, TRUNK_CLOSE, CLEAN_AIR, CHARGE_STOP, CHARGE_START,
     ).associateBy { it.id }
 }

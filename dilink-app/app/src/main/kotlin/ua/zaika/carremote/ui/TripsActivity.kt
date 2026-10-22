@@ -9,12 +9,16 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import ua.zaika.carremote.CarRemoteService
+import ua.zaika.carremote.adb.AdbShell
+import ua.zaika.carremote.car.Autoservice
 import ua.zaika.carremote.car.CarSnapshot
 import ua.zaika.carremote.car.EcTrip
 import ua.zaika.carremote.car.EnergyDb
+import ua.zaika.carremote.car.Fids
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -70,9 +74,19 @@ class TripsActivity : Activity() {
             setPadding(dp(12), dp(10), dp(12), 0)
         }
         root.addView(TextView(this).apply {
-            text = "Поїздки"
+            text = "Заряджання"
             setTextColor(pal.text); textSize = 26f; typeface = sfBold
             setPadding(dp(4), dp(2), 0, dp(8))
+        })
+
+        // Stop / resume charging (works when the cable is connected).
+        root.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(2), 0, dp(2), dp(8))
+            addView(filledPill("⏸ Зупинити зарядку", Ui.ORANGE) { chargeCmd(stop = true) },
+                LinearLayout.LayoutParams(0, WRAP, 1f).apply { setMargins(0, 0, dp(5), 0) })
+            addView(filledPill("⚡ Почати зарядку", Ui.GREEN) { chargeCmd(stop = false) },
+                LinearLayout.LayoutParams(0, WRAP, 1f).apply { setMargins(dp(5), 0, 0, 0) })
         })
 
         if (trips.isEmpty()) {
@@ -95,6 +109,21 @@ class TripsActivity : Activity() {
             clipToPadding = false
         }, LinearLayout.LayoutParams(MATCH, 0, 1f))
         setContentView(root)
+    }
+
+    /** Send a stop/resume-charging command locally (on-screen control for the car's own owner). */
+    private fun chargeCmd(stop: Boolean) {
+        Thread {
+            val car = Autoservice(AdbShell(applicationContext))
+            val msg = if (!car.isReachable()) "Авто не на зв'язку" else {
+                val gun = car.getInt(Fids.DEV_CHARGING, Fids.GUN_CONNECT_STATE)
+                if (gun == null || gun == 1) "🔌 Кабель не підключено" else {
+                    car.write(Fids.DEV_CHARGING, Fids.CHARGE_STOP_CMD, if (stop) 1 else 0)
+                    if (stop) "⏸ Команда зупинки зарядки надіслана" else "⚡ Команда старту зарядки надіслана"
+                }
+            }
+            runOnUiThread { Toast.makeText(this, msg, Toast.LENGTH_LONG).show() }
+        }.start()
     }
 
     private fun n(x: Double) = "%,.0f".format(x).replace(",", " ")
