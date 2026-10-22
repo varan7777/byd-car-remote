@@ -44,7 +44,7 @@
 Керування йде через бота **[@Varanbyd_bot](https://t.me/Varanbyd_bot)**. Своє авто ти **привʼязуєш кодом** — і бачиш та керуєш **лише ним**. Ніхто не має доступу до чужого авто.
 
 ### ⚙️ Встановлення
-1. **Увімкни ADB** на голові (Налаштування → для розробників → бездротове налагодження).
+1. **Увімкни ADB** на голові (Налаштування → для розробників → бездротове налагодження). Якщо на голові вже стоять сторонні додатки — наприклад, GBox для Google-сервісів, — значить, ADB у вас уже розблоковано.
 2. **[⬇ Завантаж APK](../../releases/latest)** і встанови на голову.
 3. Відкрий **[@Varanbyd_bot](https://t.me/Varanbyd_bot)** у Telegram → **привʼяжи авто кодом**.
 4. Готово — керуй своїм авто з телефону й з екрана голови.
@@ -72,7 +72,7 @@
 Control runs through the **[@Varanbyd_bot](https://t.me/Varanbyd_bot)** bot. You **pair your car with a code** and can see and control **only it** — no one has access to anyone else’s car.
 
 ### ⚙️ Setup
-1. **Enable ADB** on the head unit (Developer options → wireless debugging).
+1. **Enable ADB** on the head unit (Developer options → wireless debugging). If third-party apps are already installed on it — e.g. GBox for Google services — ADB is already unlocked.
 2. **[⬇ Download the APK](../../releases/latest)** and install it on the head unit.
 3. Open **[@Varanbyd_bot](https://t.me/Varanbyd_bot)** in Telegram → **pair your car with a code**.
 4. Done — control your car from your phone and the head‑unit screen.
