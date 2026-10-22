@@ -16,8 +16,8 @@ import java.util.concurrent.TimeUnit
 
 /**
  * One owner, one authenticated car. No Telegram bot token is distributed in this transport.
- * varan.team runs on PHP hosting without long-lived sockets, so the car asks the hub for
- * commands (the hub holds each request up to ~12 s) and posts replies back over HTTPS.
+ * varan.team runs on PHP hosting without long-lived sockets or many PHP workers, so the car
+ * asks the hub for commands with a short request every couple of seconds and posts replies back.
  */
 class HubBot(
     private val prefs: SharedPreferences,
@@ -75,7 +75,7 @@ class HubBot(
                         onStatus("Hub: введіть код прив’язки у налаштуваннях")
                         delay(3_000); continue
                     }
-                    val msg = post("/api/car/poll", JSONObject().put("wait", 12), token)
+                    val msg = post("/api/car/poll", JSONObject().put("wait", 0), token)
                     val owner = msg.optLong("chatId")
                     if (owner <= 0) throw IOException("Invalid owner")
                     if (prefs.getLong(OWNER, 0) != owner) prefs.edit().putLong(OWNER, owner).apply()
@@ -91,6 +91,8 @@ class HubBot(
                             .getOrElse { Reply("Помилка виконання команди. Спробуйте ще раз.") }
                         if (reply != null) runCatching { sendReply(reply, cmd.optString("requestId")) }
                     }
+                    // Short polls: a held request would occupy one PHP worker per car on the hosting.
+                    delay(if (cmds.length() > 0) 300 else msg.optLong("retryAfter", 2_500).coerceIn(1_000, 10_000))
                 } catch (e: CancellationException) { throw e }
                 catch (_: Unauthorized) {
                     ready = false; announced = false
