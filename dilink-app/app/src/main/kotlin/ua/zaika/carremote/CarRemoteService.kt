@@ -84,6 +84,7 @@ class CarRemoteService : Service() {
             )
         }
         startForeground(NOTIFICATION_ID, notification("Запуск…"))
+        KeepAliveAlarm.schedule(this)
 
         // Air-raid watch is independent of Telegram/ADB, so start it before any of that.
         locationUpdates = Geo.startUpdates(applicationContext)
@@ -176,7 +177,15 @@ class CarRemoteService : Service() {
         // Shell-uid watchdog: survives ignition-off, restarts us on wake, and sends the
         // "car switched off" message itself (the app is killed too fast to do it). It needs
         // the owner chat; without it we have no one to message anyway.
-        var watchdog = if (!hubMode && owner != 0L) Watchdog(adb, token, owner) else null
+        // In hub mode arm the watchdog at once from the saved pairing: waiting for the first hub
+        // reply left a window where a killed service had nothing to bring it back.
+        val hubToken = prefs.getString(HubBot.TOKEN, "").orEmpty()
+        var watchdog = when {
+            hubMode && hubToken.isNotBlank() && owner != 0L -> Watchdog(adb, hubToken, owner, hub = true)
+            !hubMode && owner != 0L -> Watchdog(adb, token, owner)
+            else -> null
+        }
+        var armedToken = if (hubMode) hubToken else token
         scope.launch {
             watchdog?.run { install(); restart() }
             // The watchdog dies with a full power-down; this anchor brings us back after one.
@@ -191,8 +200,13 @@ class CarRemoteService : Service() {
             if (hubMode) {
                 owner = prefs.getLong(HubBot.OWNER, 0)
                 router.setOwner(owner)
-                watchdog = Watchdog(adb, prefs.getString(HubBot.TOKEN, "").orEmpty(), owner, hub = true)
-                runCatching { watchdog?.install(); watchdog?.restart() }
+                // Re-arm only when the pairing changed (first pairing or re-pairing).
+                val current = prefs.getString(HubBot.TOKEN, "").orEmpty()
+                if (watchdog == null || current != armedToken) {
+                    armedToken = current
+                    watchdog = Watchdog(adb, current, owner, hub = true)
+                    runCatching { watchdog?.install(); watchdog?.restart() }
+                }
             }
         } }
 
@@ -377,6 +391,7 @@ class CarRemoteService : Service() {
             .setContentTitle("Car Remote")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setCategory(Notification.CATEGORY_SERVICE)
             .setOngoing(true)
             .build()
 

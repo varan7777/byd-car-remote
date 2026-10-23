@@ -98,6 +98,12 @@ class Watchdog(private val adb: AdbShell, token: String, chatId: Long, hub: Bool
               if [ "§keep" = 1 ]; then echo carremote > /sys/power/wake_lock 2>/dev/null; else echo carremote > /sys/power/wake_unlock 2>/dev/null; fi
               if [ -n "§up" ]; then
                 prev=1
+                # The process can outlive its service (DiLink's memory killer stops just the
+                # service): start it again while the screen is awake.
+                if [ "§awake" != 0 ] && [ "§(dumpsys activity services §PKG/.CarRemoteService 2>/dev/null | grep -c ServiceRecord)" = 0 ] && [ "§now" -ge "§cooldown" ]; then
+                  am start -n §PKG/.BootstrapActivity >/dev/null 2>&1
+                  cooldown=§((now + 20))
+                fi
               else
                 if [ "§prev" = 1 ]; then
                   prev=0
