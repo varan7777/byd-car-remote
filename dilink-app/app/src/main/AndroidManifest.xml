@@ -21,6 +21,8 @@
     <application
         android:allowBackup="false"
         android:requestLegacyExternalStorage="true"
+        android:icon="@drawable/ic_launcher"
+        android:roundIcon="@drawable/ic_launcher"
         android:label="Car Remote">
 
         <activity
