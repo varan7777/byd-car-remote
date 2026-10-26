@@ -5,7 +5,9 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.view.Gravity
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -78,11 +80,16 @@ class MainActivity : Activity() {
             }
         }
 
+        // The banner sits in the right-hand column, under the battery read-out, in space the dashboard keeps free for it.
+        val bannerParams = FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { setMargins(0, 0, dpv(18), dpv(12)) }
+        dashboard.onHeroLeft = { left -> adBanner.post { bannerParams.leftMargin = left.toInt(); adBanner.layoutParams = bannerParams } }
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(0xFF151C28.toInt())
-            addView(dashboard, LinearLayout.LayoutParams(MATCH, 0, 1f))
-            addView(adBanner, LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(dpv(18), dpv(4), dpv(18), dpv(2)) })
+            addView(FrameLayout(context).apply {
+                addView(dashboard, FrameLayout.LayoutParams(MATCH, MATCH))
+                addView(adBanner, bannerParams)
+            }, LinearLayout.LayoutParams(MATCH, 0, 1f))
             addView(statusLine)
         })
 
@@ -99,6 +106,7 @@ class MainActivity : Activity() {
                     "${CarRemoteService.adbStatus}   ·   ${CarRemoteService.telegramStatus}   ·   Varan7777"
                 dashboard.air = CarRemoteService.airState
                 adBanner.render(prefs)
+                dashboard.bannerSpace = if (adBanner.visibility == android.view.View.VISIBLE) dpv(124).toFloat() else 0f
                 delay(3_000)
             }
         }

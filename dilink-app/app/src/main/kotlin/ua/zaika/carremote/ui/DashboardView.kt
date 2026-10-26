@@ -28,6 +28,12 @@ class DashboardView(context: Context) : View(context) {
     var air: AirState? = null
         set(value) { field = value; invalidate() }
     var onTile: ((Tile) -> Unit)? = null
+    /** Height kept free under the battery read-out for the ad banner; 0 when there is no banner. */
+    var bannerSpace = 0f
+        set(value) { if (field != value) { field = value; invalidate() } }
+    /** Left edge of the right-hand battery column, reported so the banner can sit in it. */
+    var onHeroLeft: ((Float) -> Unit)? = null
+    private var heroLeft = -1f
 
     private val d = resources.displayMetrics.density
     private fun dp(v: Float) = v * d
@@ -88,8 +94,10 @@ class DashboardView(context: Context) : View(context) {
         val statsTop = gridTop + tileSize * 3 + gap * 3
         drawStats(canvas, RectF(pad, statsTop, gridRight, statsTop + statsH), snap)
 
-        // --- Right: big battery read-out ---
-        drawHero(canvas, gridRight + pad * 2, w - pad, h, snap)
+        // --- Right: big battery read-out, with the banner's place kept free underneath ---
+        val left = gridRight + pad * 2
+        if (left != heroLeft) { heroLeft = left; onHeroLeft?.invoke(left) }
+        drawHero(canvas, left, w - pad, h - bannerSpace, snap)
     }
 
     private class TileData(val id: Tile, val name: String, val state: String, val on: Boolean, val accent: Int? = null)
@@ -223,6 +231,9 @@ class DashboardView(context: Context) : View(context) {
         val tires = s?.tiresBar?.takeIf { l -> l.any { it != null } }
             ?.joinToString("  ") { v -> v?.let { "%.1f".format(it) } ?: "—" }
         if (tires != null) c.drawText("Шини, бар:  $tires", cx, by + dp(78f), sub)
+        val windows = s?.windowsOpenPct?.takeIf { l -> l.any { it != null } }
+            ?.joinToString("  ") { v -> v?.toString() ?: "—" }
+        if (windows != null) c.drawText("Вікна, %:  $windows", cx, by + dp(if (tires != null) 108f else 78f), sub)
     }
 
     /** Thin line icons in the DiLink style, drawn in a box of [s] centred on (cx, cy). */

@@ -29,17 +29,18 @@ class AdBanner(context: Context) : LinearLayout(context) {
     private var imageUrl: String? = null
     private var imageCall: Call? = null
     private val title = TextView(context).apply {
-        setTextColor(Ui.textc(context)); textSize = 12f; typeface = sfSemibold
-        maxLines = 2
+        setTextColor(Ui.textc(context)); textSize = 15f; typeface = sfSemibold
+        maxLines = 4
     }
     private val remove = TextView(context).apply {
-        text = "Без реклами назавжди ↗"; setTextColor(Ui.ORANGE); textSize = 11f; typeface = sfSemibold
+        text = "Без реклами назавжди ↗"; setTextColor(Ui.ORANGE); textSize = 13f; typeface = sfSemibold
         setPadding(context.dpv(12), context.dpv(8), 0, context.dpv(8))
     }
     init {
         orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-        setPadding(context.dpv(13), context.dpv(6), context.dpv(13), context.dpv(6)); background = context.rounded(Ui.card(context), 10)
-        addView(image, LayoutParams(context.dpv(42), context.dpv(42)).apply { marginEnd = context.dpv(10) })
+        setPadding(context.dpv(10), context.dpv(8), context.dpv(16), context.dpv(8)); background = context.rounded(Ui.card(context), 14)
+        // Big enough for a phone to read a QR code off the head unit.
+        addView(image, LayoutParams(context.dpv(84), context.dpv(84)).apply { marginEnd = context.dpv(14) })
         addView(title, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); addView(remove)
         visibility = View.GONE
     }
