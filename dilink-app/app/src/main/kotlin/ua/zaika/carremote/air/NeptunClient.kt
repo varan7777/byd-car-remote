@@ -26,10 +26,16 @@ class NeptunClient(private val base: String = "https://neptun.in.ua") {
         return Threats(o.optStringOrNull("serverTime"), list)
     }
 
-    /** Official alerts keyed by oblast; the oblast level is enough to warn a driver. */
-    fun oblastAlerts(): List<AirAlert> {
+    data class Alerts(val oblasts: List<AirAlert>, val raions: List<AirAlert>)
+
+    /** Official alerts by oblast and by raion; raions also carry the yellow level, oblasts so far only red. */
+    fun alerts(): Alerts {
         val o = getJson("$base/api/v1/alerts")
-        val arr = o.optJSONArray("oblasts") ?: return emptyList()
+        return Alerts(parseAlerts(o, "oblasts"), parseAlerts(o, "raions"))
+    }
+
+    private fun parseAlerts(o: JSONObject, field: String): List<AirAlert> {
+        val arr = o.optJSONArray(field) ?: return emptyList()
         val out = ArrayList<AirAlert>(arr.length())
         for (i in 0 until arr.length()) {
             val a = arr.optJSONObject(i) ?: continue

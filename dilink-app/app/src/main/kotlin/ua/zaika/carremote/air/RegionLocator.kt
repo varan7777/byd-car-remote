@@ -18,12 +18,14 @@ data class OblastShape(val key: String, val rings: List<DoubleArray>)
 class RegionLocator(
     private val context: Context,
     private val client: NeptunClient = NeptunClient(),
+    /** "oblasts.geojson", or "raions.geojson" (~630 KB) for the raion the car stands in. */
+    private val file: String = "oblasts.geojson",
 ) {
     // key -> MultiPolygon coordinates: array of polygons, each an array of rings, each [lon,lat].
     @Volatile private var features: List<Pair<String, JSONArray>>? = null
 
-    /** Oblast key containing the point, or null if unknown / data not yet available. */
-    fun oblastKeyAt(lat: Double, lon: Double): String? {
+    /** Key of the region containing the point, or null if unknown / data not yet available. */
+    fun keyAt(lat: Double, lon: Double): String? {
         val feats = features ?: load() ?: return null
         for ((key, polys) in feats) {
             for (p in 0 until polys.length()) {
@@ -79,7 +81,7 @@ class RegionLocator(
         }
     }
 
-    private fun cacheFile() = File(context.filesDir, "oblasts.geojson")
+    private fun cacheFile() = File(context.filesDir, file)
 
     private fun readCached(): JSONObject? {
         val f = cacheFile()
@@ -88,7 +90,7 @@ class RegionLocator(
     }
 
     private fun fetchAndCache(): JSONObject? = runCatching {
-        client.geoJson("oblasts.geojson").also { runCatching { cacheFile().writeText(it.toString()) } }
+        client.geoJson(file).also { runCatching { cacheFile().writeText(it.toString()) } }
     }.getOrNull()
 
     /** Ray-casting point-in-polygon on the outer ring (oblasts have no relevant holes). */

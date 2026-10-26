@@ -12,6 +12,7 @@ import android.view.MotionEvent
 import android.view.View
 import ua.zaika.carremote.air.AirState
 import ua.zaika.carremote.car.CarSnapshot
+import kotlin.math.roundToInt
 
 /**
  * The live dashboard, laid out like the factory DiLink «My car» screen: a 3×3 grid of
@@ -104,13 +105,21 @@ class DashboardView(context: Context) : View(context) {
 
     private fun tiles(s: CarSnapshot?): List<TileData> {
         val a = air
-        val alertRed = a != null && (a.oblastAlert != null || a.within.isNotEmpty())
+        // Red for a red alert in our raion/oblast or a threat within the radius; yellow for a yellow raion alert.
+        val alertAccent = when {
+            a == null -> null
+            a.regionLevel == "red" || a.within.isNotEmpty() || (a.oblastAlert != null && a.regionLevel != "yellow") -> Ui.RED
+            a.regionLevel == "yellow" -> Ui.YELLOW
+            else -> null
+        }
+        val km = a?.nearestKm?.let { " · ${it.roundToInt()} км" } ?: ""
         val alertState = when {
             a == null -> "—"
-            a.oblastAlert != null -> "Тривога в області"
-            a.within.isNotEmpty() -> "Загроза поруч"
-            a.nearest != null -> "Загрози далеко"
-            a.error != null -> "Немає даних"
+            a.error != null && a.nearest == null -> "Немає даних"
+            a.regionLevel == "red" || a.oblastAlert != null -> "Тривога$km"
+            a.regionLevel == "yellow" -> "Жовта$km"
+            a.within.isNotEmpty() -> "Поруч$km"
+            a.nearest != null -> "Далеко$km"
             else -> "Спокійно"
         }
         val windowsOpen = s?.windowsOpenPct?.any { (it ?: 0) > 0 }
@@ -133,7 +142,7 @@ class DashboardView(context: Context) : View(context) {
                 if ((s?.sunroofPct ?: 0) > 0) Ui.ORANGE else null),
             TileData(Tile.CLEAN_AIR, "Очищення", "Очистити повітря", false),
             TileData(Tile.CHARGING, "Заряджання", s?.chargingText ?: "—", charging),
-            TileData(Tile.AIR_ALERT, "Тривоги", alertState, false, if (alertRed) Ui.RED else null),
+            TileData(Tile.AIR_ALERT, "Тривоги", alertState, false, alertAccent),
             TileData(Tile.SETTINGS, "Налаштування", "Car Remote", false),
         )
     }
@@ -144,6 +153,7 @@ class DashboardView(context: Context) : View(context) {
         tileFill.color = when {
             t.on -> Ui.TILE_ON
             t.accent == Ui.RED -> 0xB34A1A1F.toInt()
+            t.accent == Ui.YELLOW -> 0xB34A4012.toInt()
             isPressed -> 0xCC3E4C62.toInt()
             else -> Ui.TILE
         }

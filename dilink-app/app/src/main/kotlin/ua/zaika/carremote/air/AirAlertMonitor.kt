@@ -21,6 +21,7 @@ data class AirState(
     val error: String?,
     val all: List<AirThreat> = emptyList(),      // every tracked threat, for the map
     val alertKeys: Set<String> = emptySet(),     // keys of all oblasts under alert, for shading
+    val regionLevel: String? = null,             // "red" | "yellow" for our raion or oblast, null when calm
 ) {
     /** Worth a beep and a red banner: official siren for our oblast, or a threat within radius. */
     val isAlarm: Boolean get() = oblastAlert != null || within.isNotEmpty()
@@ -79,6 +80,7 @@ class AirAlertMonitor(
     private val periodMs: Long = 10_000,
     private val client: NeptunClient = NeptunClient(),
     private val regions: RegionLocator = RegionLocator(context),
+    private val raions: RegionLocator = RegionLocator(context, client, "raions.geojson"),
 ) {
     suspend fun run(onState: (AirState) -> Unit) {
         while (coroutineContext.isActive) {
@@ -91,7 +93,8 @@ class AirAlertMonitor(
         val fix = Geo.lastKnown(context)
         return try {
             val threats = client.threats()
-            val alerts = client.oblastAlerts()
+            val all = client.alerts()
+            val alerts = all.oblasts
             val alertKeys = alerts.map { it.key }.toSet()
             if (fix == null) {
                 AirState(null, null, null, false, emptyList(), null, threats.list.size, threats.serverTime,
@@ -108,10 +111,14 @@ class AirAlertMonitor(
                     } ?: false
                 } ?: false
                 val within = ranked.filter { it.second <= radiusKm }
-                val oblastKey = regions.oblastKeyAt(lat, lon)
+                val oblastKey = regions.keyAt(lat, lon)
                 val oblastAlert = oblastKey?.let { k -> alerts.firstOrNull { it.key == k } }
+                val raionAlert = raions.keyAt(lat, lon)?.let { k -> all.raions.firstOrNull { it.key == k } }
+                val levels = listOfNotNull(oblastAlert?.level, raionAlert?.level)
+                val regionLevel = when { "red" in levels -> "red"; "yellow" in levels -> "yellow"; else -> null }
                 AirState(fix, nearest?.first, nearest?.second, approaching, within, oblastAlert,
-                    threats.list.size, threats.serverTime, null, all = threats.list, alertKeys = alertKeys)
+                    threats.list.size, threats.serverTime, null, all = threats.list, alertKeys = alertKeys,
+                    regionLevel = regionLevel)
             }
         } catch (e: Exception) {
             AirState(fix, null, null, false, emptyList(), null, 0, null,
