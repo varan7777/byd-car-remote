@@ -44,41 +44,43 @@ class SettingsActivity : Activity() {
 
         // Factory DiLink Settings layout: a navy list of sections on the left, the chosen one on the right.
         val sections: List<Pair<String, () -> List<View>>> = listOf(
-            "Зв'язок" to { listOf(
-                header("Telegram / Varan Hub"), pairCard(),
-                note("Реклама вимикається назавжди після разової оплати за посиланням у банері або командою /noads у боті."),
+            "Система" to { listOf(
+                header("Система"), card(
+                    switchRow("Доступність на стоянці", "keep_awake", false),
+                    switchRow("Нагадування: відчинене авто / перегрів", CarRemoteService.KEY_AUTOMATIONS, true),
+                    switchRow("Зачинене й порожнє авто: вимикати екран і ходові", ua.zaika.carremote.car.ParkedQuiet.KEY_ENABLED, true),
+                    switchRow("Плаваючий віджет (поверх усього)", CarRemoteService.KEY_WIDGET, false) {
+                        if (it && !Settings.canDrawOverlays(this)) runCatching {
+                            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                        }
+                    },
+                ),
+                header("Камери"), card(
+                    switchRow("Камера при повороті (сліпа зона)", CarRemoteService.KEY_CAM_TURN, false) { if (it) cameraPermissions() },
+                    switchRow("Камера при відкритті дверей", CarRemoteService.KEY_CAM_DOOR, false) { if (it) cameraPermissions() },
+                    inputRow("Поворот — від швидкості, км/год", CarRemoteService.KEY_CAM_MIN_SPEED, "15", numeric = true),
+                ), note("Камери показуються на планшеті. Потрібен дозвіл «Поверх інших застосунків»."),
+                header("Повітря"), card(
+                    switchRow("Іонізатор повітря", "ionizer", false) { sendIonizer(it) },
+                ), note("Іонізатор працює лише на версіях DiLink, де він підтримується апаратно. " +
+                    "На цьому авто стан не зчитується — команда надсилається без підтвердження."),
             ) },
             "Оновлення" to { listOf(header("Оновлення застосунку"), updateCard()) },
-            "Голос тривоги" to { listOf(
-                header("Український голос"), voiceCard(),
-                note("Штатний голос DiLink не говорить українською, тому для голосових попереджень потрібен " +
-                    "безкоштовний офлайн-рушій RHVoice. Без нього під час тривоги звучить лише сигнал."),
-            ) },
-            "Система" to { listOf(header("Система"), card(
-                switchRow("Доступність на стоянці", "keep_awake", false),
-                switchRow("Нагадування: відчинене авто / перегрів", CarRemoteService.KEY_AUTOMATIONS, true),
-                switchRow("Зачинене й порожнє авто: вимикати екран і ходові", ua.zaika.carremote.car.ParkedQuiet.KEY_ENABLED, true),
-                switchRow("Плаваючий віджет (поверх усього)", CarRemoteService.KEY_WIDGET, false) {
-                    if (it && !Settings.canDrawOverlays(this)) runCatching {
-                        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-                    }
-                },
-            )) },
-            "Камери" to { listOf(header("Камери"), card(
-                switchRow("Камера при повороті (сліпа зона)", CarRemoteService.KEY_CAM_TURN, false) { if (it) cameraPermissions() },
-                switchRow("Камера при відкритті дверей", CarRemoteService.KEY_CAM_DOOR, false) { if (it) cameraPermissions() },
-                inputRow("Поворот — від швидкості, км/год", CarRemoteService.KEY_CAM_MIN_SPEED, "15", numeric = true),
-            ), note("Камери показуються на планшеті. Потрібен дозвіл «Поверх інших застосунків».")) },
-            "Повітря" to { listOf(header("Повітря"), card(
-                switchRow("Іонізатор повітря", "ionizer", false) { sendIonizer(it) },
-            ), note("Іонізатор працює лише на версіях DiLink, де він підтримується апаратно. " +
-                "На цьому авто стан не зчитується — команда надсилається без підтвердження.")) },
             "Тарифи" to { listOf(header("Тарифи зарядки"), card(
                 inputRow("Дім, за кВт·год", CarRemoteService.KEY_TARIFF, "напр. 4.32", decimal = true),
                 inputRow("Швидка 1, за кВт·год", CarRemoteService.KEY_TARIFF_DC1, "напр. 18", decimal = true),
                 inputRow("Швидка 2, за кВт·год", CarRemoteService.KEY_TARIFF_DC2, "напр. 25", decimal = true),
                 inputRow("Валюта", CarRemoteService.KEY_CURRENCY, "грн", numeric = false, defaultText = "грн"),
             ), note("Витрати на екрані «Заряджання» = кВт·год × тариф.")) },
+            "Голос тривоги" to { listOf(
+                header("Український голос"), voiceCard(),
+                note("Штатний голос DiLink не говорить українською, тому для голосових попереджень потрібен " +
+                    "безкоштовний офлайн-рушій RHVoice. Без нього під час тривоги звучить лише сигнал."),
+            ) },
+            "Зв'язок" to { listOf(
+                header("Telegram / Varan Hub"), pairCard(),
+                note("Реклама вимикається назавжди після разової оплати за посиланням у банері або командою /noads у боті."),
+            ) },
         )
 
         content = LinearLayout(this).apply {
@@ -116,7 +118,9 @@ class SettingsActivity : Activity() {
             addView(ScrollView(context).apply { addView(nav) }, LinearLayout.LayoutParams(dpv(330), ViewGroup.LayoutParams.MATCH_PARENT))
             addView(ScrollView(context).apply { addView(content) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         })
-        select(0, sections[0].second)
+        // Not paired yet: open straight on the pairing section, which now sits at the bottom of the list.
+        val first = if (prefs.getString(HubBot.TOKEN, "").isNullOrBlank()) sections.lastIndex else 0
+        select(first, sections[first].second)
     }
 
     private fun select(index: Int, build: () -> List<View>) {
