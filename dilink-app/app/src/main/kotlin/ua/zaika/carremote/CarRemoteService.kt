@@ -235,6 +235,7 @@ class CarRemoteService : Service() {
         // Push charging / low-battery alerts to the owner on state changes.
         if (owner != 0L || hubMode) {
             val notifier = Notifier(car) { router.lowSoc() }
+            val quiet = ua.zaika.carremote.car.ParkedQuiet(car, adb, prefs)
             val trip = TripTracker()
             val autos = Automations()
             scope.launch {
@@ -249,6 +250,8 @@ class CarRemoteService : Service() {
                             if (prefs.getBoolean(KEY_AUTOMATIONS, true)) {
                                 for (m in autos.poll(snap)) runCatching { bot.send(owner, m) }
                             }
+                            quiet.poll(prefs.getBoolean(ua.zaika.carremote.car.ParkedQuiet.KEY_ENABLED, true), snap)
+                                ?.let { m -> runCatching { bot.send(owner, m) } }
                             val loc = readLocation()
                             val map = loc?.let { "\n📍 https://maps.google.com/?q=${it.first},${it.second}" } ?: ""
                             val body = ShutdownReport.body(snap) + (trip.line(snap)?.let { "\n$it" } ?: "") + map

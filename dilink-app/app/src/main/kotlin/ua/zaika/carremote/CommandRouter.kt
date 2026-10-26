@@ -65,7 +65,7 @@ class CommandRouter(
 
             // Unlock asks first, with a one-off inline confirm button.
             "unlock" -> Reply(
-                "Відімкнути авто?",
+                "Відімкнути авто?\nЯкщо авто поставлене на охорону ключем, з додатка охорона може не знятися — тоді відімкніть ключем.",
                 InlineKeyboard(
                     listOf(
                         listOf(Button("✅ Так, відімкнути", "unlock_do")),
@@ -74,6 +74,18 @@ class CommandRouter(
                 ),
             )
             "unlock_do" -> run(Controls.UNLOCK)
+
+            // On DiLink 4 the tailgate of a locked car sets off the alarm: ask first.
+            "trunk_open" -> if (car.isReachable() && car.getInt(Fids.DEV_DOOR_LOCKS, Fids.LOCK_DRIVER) == 2) Reply(
+                "Авто зачинене. На деяких моделях відкриття багажника зачиненого авто вмикає сигналізацію. Відкрити?",
+                InlineKeyboard(
+                    listOf(
+                        listOf(Button("🧳 Так, відкрити", "trunk_open_do")),
+                        listOf(Button("↩️ Скасувати", "menu")),
+                    ),
+                ),
+            ) else run(Controls.TRUNK_OPEN)
+            "trunk_open_do" -> run(Controls.TRUNK_OPEN)
 
             else -> when {
                 token.startsWith("setlow_") -> Reply(setLow(token.removePrefix("setlow_").toIntOrNull()))
