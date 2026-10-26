@@ -16,6 +16,8 @@ import ua.zaika.carremote.CarRemoteService
 import ua.zaika.carremote.adb.AdbShell
 import ua.zaika.carremote.car.Autoservice
 import ua.zaika.carremote.car.CarSnapshot
+import ua.zaika.carremote.car.ChargeLog
+import ua.zaika.carremote.car.ChargeSession
 import ua.zaika.carremote.car.EcTrip
 import ua.zaika.carremote.car.EnergyDb
 import ua.zaika.carremote.car.Fids
@@ -61,63 +63,170 @@ class TripsActivity : Activity() {
     private fun dp(v: Int) = (v * dens).toInt()
     private val pal by lazy { Pal.of(this) }
 
+    private val prefs by lazy { getSharedPreferences("carremote", Context.MODE_PRIVATE) }
+    private val cur by lazy { prefs.getString(CarRemoteService.KEY_CURRENCY, "грн")?.ifBlank { "грн" } ?: "грн" }
+    private var allTrips: List<EcTrip> = emptyList()
+    private var fromMs = 0L
+    private var toMs = Long.MAX_VALUE
+    private var period = "Усе"
+    private lateinit var body: LinearLayout
+    private val chips = mutableListOf<TextView>()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val prefs = getSharedPreferences("carremote", Context.MODE_PRIVATE)
-        val tariff = prefs.getString(CarRemoteService.KEY_TARIFF, "")?.toDoubleOrNull()
-        val cur = prefs.getString(CarRemoteService.KEY_CURRENCY, "грн")?.ifBlank { "грн" } ?: "грн"
-        val trips = EnergyDb.trips(applicationContext)
+        allTrips = EnergyDb.trips(applicationContext)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(pal.bg)
-            setPadding(dp(12), dp(10), dp(12), 0)
+            setPadding(dp(16), dp(10), dp(16), 0)
         }
+        // Header: back, title, and the charging controls on the right.
         root.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            setPadding(0, dp(2), 0, dp(8))
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(2), 0, dp(10))
             addView(TextView(context).apply {
                 text = "‹"; setTextColor(pal.text); textSize = 34f; typeface = sf
-                gravity = android.view.Gravity.CENTER; contentDescription = "Назад"
+                gravity = Gravity.CENTER; contentDescription = "Назад"
                 background = tileBg(radius = 22)
                 setOnClickListener { finish() }
-            }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { setMargins(dp(4), 0, dp(14), 0) })
+            }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { setMargins(0, 0, dp(14), 0) })
             addView(TextView(context).apply {
                 text = "Заряджання"; setTextColor(pal.text); textSize = 26f; typeface = sfSemibold
-            })
+            }, LinearLayout.LayoutParams(0, WRAP, 1f))
+            addView(tintedPill("Зупинити зарядку", Ui.ORANGE) { chargeCmd(stop = true) },
+                LinearLayout.LayoutParams(WRAP, WRAP).apply { setMargins(dp(6), 0, dp(6), 0) })
+            addView(tintedPill("Почати зарядку", Ui.GREEN) { chargeCmd(stop = false) })
         })
-
-        // Stop / resume charging (works when the cable is connected).
+        // Period chips.
         root.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(2), 0, dp(2), dp(8))
-            addView(tintedPill("Зупинити зарядку", Ui.ORANGE) { chargeCmd(stop = true) },
-                LinearLayout.LayoutParams(0, WRAP, 1f).apply { setMargins(0, 0, dp(5), 0) })
-            addView(tintedPill("Почати зарядку", Ui.GREEN) { chargeCmd(stop = false) },
-                LinearLayout.LayoutParams(0, WRAP, 1f).apply { setMargins(dp(5), 0, 0, 0) })
+            setPadding(0, 0, 0, dp(8))
+            listOf("Тиждень", "Місяць", "Рік", "Усе", "Період…").forEach { name ->
+                val chip = TextView(context).apply {
+                    text = name; textSize = 16f; typeface = sf; setTextColor(pal.text)
+                    setPadding(dp(18), dp(8), dp(18), dp(8))
+                    setOnClickListener { choosePeriod(name) }
+                }
+                chips += chip
+                addView(chip, LinearLayout.LayoutParams(WRAP, WRAP).apply { setMargins(0, 0, dp(8), 0) })
+            }
         })
-
-        if (trips.isEmpty()) {
-            root.addView(TextView(this).apply {
-                text = if (!EnergyDb.available())
-                    "Не вдалось прочитати журнал авто. Дай дозвіл «Пам'ять» у ⚙ Налаштування."
-                else "Поки порожньо."
-                setTextColor(pal.muted); textSize = 14f
-            })
-            setContentView(root); return
-        }
-
-        lifetimeLine(CarRemoteService.lastSnapshot, tariff, cur)?.let { root.addView(it) }
-        root.addView(loggedLine(trips, tariff, cur))
-        root.addView(headerRow(cur))
-        root.addView(divider())
-        root.addView(RecyclerView(this).apply {
-            layoutManager = LinearLayoutManager(this@TripsActivity)
-            adapter = TripAdapter(trips, tariff, dens, pal)
-            clipToPadding = false
-        }, LinearLayout.LayoutParams(MATCH, 0, 1f))
+        body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(body, LinearLayout.LayoutParams(MATCH, 0, 1f))
         setContentView(root)
+        render()
+    }
+
+    override fun onResume() { super.onResume(); if (::body.isInitialized) render() }
+
+    private fun choosePeriod(name: String) {
+        val day = 86_400_000L
+        val now = System.currentTimeMillis()
+        when (name) {
+            "Тиждень" -> { fromMs = now - 7 * day; toMs = Long.MAX_VALUE }
+            "Місяць" -> { fromMs = now - 30 * day; toMs = Long.MAX_VALUE }
+            "Рік" -> { fromMs = now - 365 * day; toMs = Long.MAX_VALUE }
+            "Усе" -> { fromMs = 0; toMs = Long.MAX_VALUE }
+            else -> { pickRange(); return }
+        }
+        period = name; render()
+    }
+
+    /** Two date pickers: from, then to (inclusive). */
+    private fun pickRange() {
+        val c = java.util.Calendar.getInstance()
+        android.app.DatePickerDialog(this, { _, y, m, d ->
+            val from = java.util.Calendar.getInstance().apply { set(y, m, d, 0, 0, 0) }.timeInMillis
+            android.app.DatePickerDialog(this, { _, y2, m2, d2 ->
+                val to = java.util.Calendar.getInstance().apply { set(y2, m2, d2, 23, 59, 59) }.timeInMillis
+                fromMs = minOf(from, to); toMs = maxOf(from, to)
+                val f = SimpleDateFormat("dd.MM.yy", Locale("uk"))
+                period = "${f.format(Date(fromMs))}–${f.format(Date(toMs))}"
+                render()
+            }, y, m, d).apply { setTitle("По яку дату") }.show()
+        }, c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH), c.get(java.util.Calendar.DAY_OF_MONTH))
+            .apply { setTitle("З якої дати") }.show()
+    }
+
+    private fun render() {
+        chips.forEach { chip ->
+            val on = chip.text == period || (chip.text == "Період…" && period.contains('–'))
+            chip.background = if (on) rounded(0xFF2C3646.toInt(), 22) else tileBg(radius = 22)
+        }
+        val tariff = ChargeLog.tariff(prefs, "home")
+        val trips = allTrips.filter { it.startMs in fromMs..toMs }
+        val charges = ChargeLog.all(applicationContext).filter { it.startMs in fromMs..toMs }
+        body.removeAllViews()
+
+        // Summary for the chosen period.
+        val tripKm = trips.sumOf { it.km }; val tripKwh = trips.sumOf { it.kwh }
+        val tripCost = tariff?.let { " · ≈${n(tripKwh * it)} $cur" } ?: ""
+        val chKwh = charges.sumOf { it.kwh }; val chCost = charges.mapNotNull { it.cost }.sum()
+        val dcKwh = charges.filter { it.dc }.sumOf { it.kwh }
+        body.addView(sumLine("Поїздки · $period", pal.accent,
+            "${trips.size} · ${n(tripKm)} км · ${n(tripKwh)} кВт·год · ${if (tripKm >= 1) "%.1f".format(tripKwh / tripKm * 100) else "—"}/100$tripCost"))
+        body.addView(sumLine("Зарядки · $period", Ui.GREEN,
+            "${charges.size} · ${n(chKwh)} кВт·год (швидкі ${n(dcKwh)}) · витрачено ${n(chCost)} $cur"))
+        lifetimeLine(CarRemoteService.lastSnapshot, tariff, cur)?.let { body.addView(it) }
+
+        // Two columns: trips (consumption) and charging sessions (cost).
+        body.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(8), 0, 0)
+            addView(column("Поїздки", headerRow(cur), if (trips.isEmpty()) emptyNote(
+                if (!EnergyDb.available()) "Не вдалось прочитати журнал авто. Дай дозвіл «Пам'ять» у Налаштуваннях." else "За цей період поїздок немає."
+            ) else RecyclerView(context).apply {
+                layoutManager = LinearLayoutManager(this@TripsActivity)
+                adapter = TripAdapter(trips, tariff, dens, pal)
+            }), LinearLayout.LayoutParams(0, MATCH, 1.1f).apply { setMargins(0, 0, dp(8), 0) })
+            addView(column("Зарядки", chargeHeader(), if (charges.isEmpty()) emptyNote(
+                "Зарядок за цей період немає. Застосунок записує кожну зарядку сам, починаючи з цієї версії."
+            ) else RecyclerView(context).apply {
+                layoutManager = LinearLayoutManager(this@TripsActivity)
+                adapter = ChargeAdapter(charges, cur, dens, pal) { s -> retariff(s) }
+            }), LinearLayout.LayoutParams(0, MATCH, 1f).apply { setMargins(dp(8), 0, 0, 0) })
+        }, LinearLayout.LayoutParams(MATCH, 0, 1f))
+    }
+
+    private fun column(title: String, header: View, list: View) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        background = rounded(pal.zebra, 16)
+        addView(TextView(context).apply {
+            text = title; setTextColor(pal.text); textSize = 18f; typeface = sfSemibold
+            setPadding(dp(12), dp(10), dp(12), dp(6))
+        })
+        addView(header)
+        addView(divider())
+        addView(list, LinearLayout.LayoutParams(MATCH, 0, 1f))
+    }
+
+    private fun emptyNote(text: String) = TextView(this).apply {
+        this.text = text; setTextColor(pal.muted); textSize = 14f; setPadding(dp(12), dp(12), dp(12), dp(12))
+    }
+
+    /** Tap on a charging row: choose which tariff it is billed at. */
+    private fun retariff(s: ChargeSession) {
+        startActivity(android.content.Intent(this, ChargeTariffActivity::class.java)
+            .putExtra(ChargeTariffActivity.EXTRA_START, s.startMs)
+            .putExtra(ChargeTariffActivity.EXTRA_PAST, true))
+    }
+
+    private fun chargeHeader(): View {
+        val r = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(pal.header)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+        }
+        fun h(t: String, w: Float, end: Boolean) = TextView(this).apply {
+            text = t; setTextColor(pal.muted); textSize = 11f; typeface = sfSemibold
+            if (end) gravity = Gravity.END
+            layoutParams = LinearLayout.LayoutParams(0, WRAP, w)
+        }
+        r.addView(h("Дата", 1.4f, false)); r.addView(h("Тип", 0.7f, false)); r.addView(h("Заряд", 1.3f, true))
+        r.addView(h("кВт·год", 1.0f, true)); r.addView(h("Тариф", 1.0f, true)); r.addView(h(cur, 1.0f, true))
+        return r
     }
 
     /** Send a stop/resume-charging command locally (on-screen control for the car's own owner). */
@@ -251,6 +360,56 @@ class TripsActivity : Activity() {
             if (s <= 0) return ""
             val m = s / 60
             return if (m >= 60) "%d:%02d".format(m / 60, m % 60) else "${m}хв"
+        }
+
+        override fun getItemCount() = items.size
+    }
+
+    private class ChargeAdapter(
+        val items: List<ChargeSession>, val cur: String, val d: Float, val pal: Pal, val onTap: (ChargeSession) -> Unit,
+    ) : RecyclerView.Adapter<ChargeAdapter.VH>() {
+        private fun dp(v: Int) = (v * d).toInt()
+        private val fDate = SimpleDateFormat("dd.MM HH:mm", Locale("uk"))
+
+        class VH(val root: LinearLayout, val cells: List<TextView>) : RecyclerView.ViewHolder(root)
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
+            val ctx = parent.context
+            val weights = listOf(1.4f, 0.7f, 1.3f, 1.0f, 1.0f, 1.0f)
+            val cells = weights.mapIndexed { i, w ->
+                TextView(ctx).apply {
+                    textSize = 13f; maxLines = 1; typeface = if (i == 3) sfSemibold else sf
+                    setTextColor(if (i == 0 || i == 3) pal.text else pal.muted)
+                    if (i >= 2) gravity = Gravity.END
+                    layoutParams = LinearLayout.LayoutParams(0, WRAP, w)
+                }
+            }
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                cells.forEach { addView(it) }
+            }
+            val root = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = RecyclerView.LayoutParams(MATCH, WRAP)
+                addView(row)
+                addView(View(ctx).apply { setBackgroundColor(pal.divider); layoutParams = LinearLayout.LayoutParams(MATCH, 1) })
+            }
+            return VH(root, cells)
+        }
+
+        override fun onBindViewHolder(h: VH, position: Int) {
+            val s = items[position]
+            h.root.setBackgroundColor(if (position % 2 == 0) pal.zebra else pal.rowAlt)
+            h.root.setOnClickListener { onTap(s) }
+            val c = h.cells
+            c[0].text = fDate.format(Date(s.startMs))
+            c[1].text = if (s.dc) "DC" else "AC"; c[1].setTextColor(if (s.dc) pal.mid else pal.good)
+            c[2].text = if (s.socStart != null && s.socEnd != null) "%.0f→%.0f%%".format(s.socStart, s.socEnd) else ""
+            c[3].text = "%.1f".format(s.kwh)
+            c[4].text = when (s.priceKey) { "home" -> "Дім"; "dc1" -> "Швидка 1"; "dc2" -> "Швидка 2"; else -> "—" }
+            c[5].text = s.cost?.let { "%.0f".format(it) } ?: "—"
+            c[5].setTextColor(pal.accent)
         }
 
         override fun getItemCount() = items.size

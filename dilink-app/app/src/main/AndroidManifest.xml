@@ -46,6 +46,13 @@
             android:label="Поїздки"
             android:exported="false" />
 
+        <!-- Tariff pick-up for a fast-charge session (dialog over whatever is on screen). -->
+        <activity
+            android:name=".ui.ChargeTariffActivity"
+            android:theme="@android:style/Theme.DeviceDefault.Dialog.NoActionBar"
+            android:excludeFromRecents="true"
+            android:exported="false" />
+
         <activity
             android:name=".ui.SettingsActivity"
             android:label="Налаштування"

@@ -232,6 +232,22 @@ class CarRemoteService : Service() {
             }
         }
 
+        // Charging journal: the car keeps none, so record every session for the charging screen.
+        scope.launch {
+            val recorder = ua.zaika.carremote.car.ChargeLog.Recorder(applicationContext, prefs) { start ->
+                // More than one fast-charge tariff: ask which one (the dearer one is used if ignored).
+                runCatching {
+                    startActivity(Intent(this@CarRemoteService, ua.zaika.carremote.ui.ChargeTariffActivity::class.java)
+                        .putExtra(ua.zaika.carremote.ui.ChargeTariffActivity.EXTRA_START, start)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+            }
+            while (isActive) {
+                if (car.isReachable()) runCatching { recorder.poll(car) }
+                delay(if (recorder.activeStart != null) 20_000 else 60_000)
+            }
+        }
+
         // Push charging / low-battery alerts to the owner on state changes.
         if (owner != 0L || hubMode) {
             val notifier = Notifier(car) { router.lowSoc() }
