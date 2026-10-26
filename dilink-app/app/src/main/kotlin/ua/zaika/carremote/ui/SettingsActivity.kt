@@ -237,8 +237,11 @@ class SettingsActivity : Activity() {
             val form = !paired() || editing
             hint.visibility = if (form) View.VISIBLE else View.GONE
             fieldWrap.visibility = if (form) View.VISIBLE else View.GONE
-            action.text = when { pending -> "Прив’язуємо…"; form -> "Прив’язати авто →"; else -> "Перепривʼязати →" }
+            action.text = when { pending -> "Прив’язуємо…"; form -> "Прив’язати авто →"; else -> "Прив’язати до іншого Telegram" }
             action.alpha = if (pending) 0.5f else 1f
+            // Already paired: re-pairing is a rare need, so it is a quiet grey line, not a call to action.
+            action.setTextColor(if (form || pending) Ui.BLUE else Ui.text2c(this@SettingsActivity))
+            action.textSize = if (form || pending) 18f else 15f
             if (!pending && status.text.isNullOrEmpty()) {
                 if (paired()) show("✅ Авто прив’язано до Telegram", Ui.GREEN) else show("Авто ще не прив’язане", Ui.text2c(this))
             }

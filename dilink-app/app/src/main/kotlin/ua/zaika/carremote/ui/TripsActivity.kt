@@ -23,7 +23,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Theme-aware palette for the trips table (Apple light / dark). */
+/** Theme-aware palette for the trips table (DiLink night / light day). */
 private class Pal(
     val bg: Int, val header: Int, val zebra: Int, val rowAlt: Int, val divider: Int,
     val text: Int, val muted: Int, val accent: Int, val good: Int, val mid: Int, val high: Int,
@@ -35,10 +35,10 @@ private class Pal(
             muted = 0xFF8E8E93.toInt(), accent = 0xFF34C759.toInt(),
             good = 0xFF34C759.toInt(), mid = 0xFFFF9500.toInt(), high = 0xFFFF3B30.toInt(),
         ) else Pal(
-            bg = 0xFF000000.toInt(), header = 0xFF1C1C1E.toInt(), zebra = 0xFF121214.toInt(),
-            rowAlt = 0xFF000000.toInt(), divider = 0x1FFFFFFF, text = 0xFFFFFFFF.toInt(),
-            muted = 0xFF98989F.toInt(), accent = 0xFF30D158.toInt(),
-            good = 0xFF30D158.toInt(), mid = 0xFFFF9F0A.toInt(), high = 0xFFFF453A.toInt(),
+            bg = Ui.BG, header = 0xFF1F2836.toInt(), zebra = 0xFF141B25.toInt(),
+            rowAlt = Ui.BG, divider = 0x1AFFFFFF, text = Ui.TEXT,
+            muted = Ui.TEXT2, accent = Ui.BLUE,
+            good = Ui.GREEN, mid = Ui.ORANGE, high = Ui.RED,
         )
     }
 }
@@ -92,9 +92,9 @@ class TripsActivity : Activity() {
         root.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(2), 0, dp(2), dp(8))
-            addView(filledPill("⏸ Зупинити зарядку", Ui.ORANGE) { chargeCmd(stop = true) },
+            addView(tintedPill("Зупинити зарядку", Ui.ORANGE) { chargeCmd(stop = true) },
                 LinearLayout.LayoutParams(0, WRAP, 1f).apply { setMargins(0, 0, dp(5), 0) })
-            addView(filledPill("⚡ Почати зарядку", Ui.GREEN) { chargeCmd(stop = false) },
+            addView(tintedPill("Почати зарядку", Ui.GREEN) { chargeCmd(stop = false) },
                 LinearLayout.LayoutParams(0, WRAP, 1f).apply { setMargins(dp(5), 0, 0, 0) })
         })
 
