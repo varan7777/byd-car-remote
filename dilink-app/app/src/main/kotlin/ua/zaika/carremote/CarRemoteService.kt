@@ -356,6 +356,8 @@ class CarRemoteService : Service() {
             cameraPreviewUntil = SystemClock.elapsedRealtime() + 10_000
         }
         if (intent?.action == ACTION_TEST) {
+            // Re-open the voice each test: picks up an engine or Ukrainian voice installed since start.
+            airSpeaker?.shutdown(); airSpeaker = ua.zaika.carremote.air.Speaker(this)
             airBeep()
             if (getSharedPreferences("carremote", Context.MODE_PRIVATE).getBoolean(KEY_VOICE, true)) {
                 airSpeaker?.speak("Увага. Перевірка сигналу. Безпілотник за десять кілометрів. Курс на вас.")

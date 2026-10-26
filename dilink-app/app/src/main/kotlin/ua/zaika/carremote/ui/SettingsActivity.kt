@@ -31,72 +31,160 @@ import ua.zaika.carremote.car.Autoservice
 import ua.zaika.carremote.car.Fids
 import ua.zaika.carremote.telegram.HubBot
 
-/** App settings, grouped Apple-style: keep-awake, reminders, widget, cameras, air, charging tariffs. */
+/** App settings in the factory DiLink layout: sections on the left, the chosen section on the right. */
 class SettingsActivity : Activity() {
 
     private val prefs by lazy { getSharedPreferences("carremote", Context.MODE_PRIVATE) }
 
+    private lateinit var content: LinearLayout
+    private val navItems = mutableListOf<TextView>()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val root = LinearLayout(this).apply {
+        // Factory DiLink Settings layout: a navy list of sections on the left, the chosen one on the right.
+        val sections: List<Pair<String, () -> List<View>>> = listOf(
+            "Зв'язок" to { listOf(
+                header("Telegram / Varan Hub"), pairCard(),
+                note("Реклама вимикається назавжди після разової оплати за посиланням у банері або командою /noads у боті."),
+            ) },
+            "Оновлення" to { listOf(header("Оновлення застосунку"), updateCard()) },
+            "Голос тривоги" to { listOf(
+                header("Український голос"), voiceCard(),
+                note("Штатний голос DiLink не говорить українською, тому для голосових попереджень потрібен " +
+                    "безкоштовний офлайн-рушій RHVoice. Без нього під час тривоги звучить лише сигнал."),
+            ) },
+            "Система" to { listOf(header("Система"), card(
+                switchRow("Доступність на стоянці", "keep_awake", false),
+                switchRow("Нагадування: відчинене авто / перегрів", CarRemoteService.KEY_AUTOMATIONS, true),
+                switchRow("Зачинене й порожнє авто: вимикати екран і ходові", ua.zaika.carremote.car.ParkedQuiet.KEY_ENABLED, true),
+                switchRow("Плаваючий віджет (поверх усього)", CarRemoteService.KEY_WIDGET, false) {
+                    if (it && !Settings.canDrawOverlays(this)) runCatching {
+                        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                    }
+                },
+            )) },
+            "Камери" to { listOf(header("Камери"), card(
+                switchRow("Камера при повороті (сліпа зона)", CarRemoteService.KEY_CAM_TURN, false) { if (it) cameraPermissions() },
+                switchRow("Камера при відкритті дверей", CarRemoteService.KEY_CAM_DOOR, false) { if (it) cameraPermissions() },
+                inputRow("Поворот — від швидкості, км/год", CarRemoteService.KEY_CAM_MIN_SPEED, "15", numeric = true),
+            ), note("Камери показуються на планшеті. Потрібен дозвіл «Поверх інших застосунків».")) },
+            "Повітря" to { listOf(header("Повітря"), card(
+                switchRow("Іонізатор повітря", "ionizer", false) { sendIonizer(it) },
+            ), note("Іонізатор працює лише на версіях DiLink, де він підтримується апаратно. " +
+                "На цьому авто стан не зчитується — команда надсилається без підтвердження.")) },
+            "Тарифи" to { listOf(header("Тарифи зарядки"), card(
+                inputRow("Дім, за кВт·год", CarRemoteService.KEY_TARIFF, "напр. 4.32", decimal = true),
+                inputRow("Швидка 1, за кВт·год", CarRemoteService.KEY_TARIFF_DC1, "напр. 18", decimal = true),
+                inputRow("Швидка 2, за кВт·год", CarRemoteService.KEY_TARIFF_DC2, "напр. 25", decimal = true),
+                inputRow("Валюта", CarRemoteService.KEY_CURRENCY, "грн", numeric = false, defaultText = "грн"),
+            ), note("Витрати на екрані «Заряджання» = кВт·год × тариф.")) },
+        )
+
+        content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dpv(16), dpv(18), dpv(16), dpv(28))
+            setPadding(dpv(28), dpv(18), dpv(36), dpv(28))
+        }
+        val nav = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dpv(18), dpv(18), dpv(18), dpv(18))
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                addView(TextView(context).apply {
+                    text = "‹"; setTextColor(Ui.textc(context)); textSize = 34f; typeface = sf; gravity = Gravity.CENTER
+                    background = tileBg(radius = 22); contentDescription = "Назад"
+                    setOnClickListener { finish() }
+                }, LinearLayout.LayoutParams(dpv(48), dpv(48)).apply { setMargins(0, 0, dpv(14), 0) })
+                addView(TextView(context).apply {
+                    text = "Налаштування"; setTextColor(Ui.textc(context)); textSize = 22f; typeface = sfSemibold
+                })
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { setMargins(0, 0, 0, dpv(18)) })
+            sections.forEachIndexed { i, (title, build) ->
+                val item = TextView(context).apply {
+                    text = title; textSize = 19f; typeface = sf; setTextColor(Ui.textc(context))
+                    setPadding(dpv(20), dpv(14), dpv(20), dpv(14))
+                    setOnClickListener { select(i, build) }
+                }
+                navItems += item
+                addView(item, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { setMargins(0, dpv(2), 0, dpv(2)) })
+            }
         }
 
-        root.addView(TextView(this).apply {
-            text = "Налаштування"; setTextColor(Ui.textc(context)); textSize = 30f; typeface = sfBold
-            setPadding(dpv(4), 0, 0, dpv(14))
-        })
-
-        root.addView(header("TELEGRAM / VARAN HUB"))
-        root.addView(pairCard())
-        root.addView(note("Реклама вимикається назавжди після разової оплати за посиланням у банері або командою /noads у боті."))
-
-        root.addView(header("ОНОВЛЕННЯ"))
-        root.addView(updateCard())
-
-        root.addView(header("СИСТЕМА"))
-        root.addView(card(
-            switchRow("🅿️  Доступність на стоянці", "keep_awake", false),
-            switchRow("🔔  Нагадування: відчинене авто / перегрів", CarRemoteService.KEY_AUTOMATIONS, true),
-            switchRow("🌙  Зачинене й порожнє авто: гасити екран і ходові", ua.zaika.carremote.car.ParkedQuiet.KEY_ENABLED, true),
-            switchRow("📟  Плаваючий віджет (поверх усього)", CarRemoteService.KEY_WIDGET, false) {
-                if (it && !Settings.canDrawOverlays(this)) runCatching {
-                    startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-                }
-            },
-        ))
-
-        root.addView(header("КАМЕРИ"))
-        root.addView(card(
-            switchRow("📹  Камера при повороті (сліпа зона)", CarRemoteService.KEY_CAM_TURN, false) { if (it) cameraPermissions() },
-            switchRow("📹  Камера при відкритті дверей", CarRemoteService.KEY_CAM_DOOR, false) { if (it) cameraPermissions() },
-            inputRow("Поворот — від швидкості, км/год", CarRemoteService.KEY_CAM_MIN_SPEED, "15", numeric = true),
-        ))
-
-        root.addView(header("ПОВІТРЯ"))
-        root.addView(card(
-            switchRow("✨  Іонізатор повітря", "ionizer", false) { sendIonizer(it) },
-        ))
-        root.addView(note("Іонізатор працює лише на версіях DiLink, де він підтримується апаратно. " +
-            "На цьому авто стан не зчитується — команда надсилається без підтвердження."))
-
-        root.addView(header("ТАРИФИ ЗАРЯДКИ"))
-        root.addView(card(
-            inputRow("🏠  Дім, за кВт·год", CarRemoteService.KEY_TARIFF, "напр. 4.32", decimal = true),
-            inputRow("⚡  Швидка 1, за кВт·год", CarRemoteService.KEY_TARIFF_DC1, "напр. 18", decimal = true),
-            inputRow("⚡  Швидка 2, за кВт·год", CarRemoteService.KEY_TARIFF_DC2, "напр. 25", decimal = true),
-            inputRow("Валюта", CarRemoteService.KEY_CURRENCY, "грн", numeric = false, defaultText = "грн"),
-        ))
-
-        root.addView(note("Витрати в Поїздках = кВт·год × тариф. Камери показуються на планшеті. " +
-            "Віджет потребує дозволу «Поверх інших застосунків», Поїздки — дозволу на сховище."))
-
-        setContentView(ScrollView(this).apply {
+        setContentView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(Ui.bg(this@SettingsActivity))
-            addView(root)
+            addView(ScrollView(context).apply { addView(nav) }, LinearLayout.LayoutParams(dpv(330), ViewGroup.LayoutParams.MATCH_PARENT))
+            addView(ScrollView(context).apply { addView(content) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         })
+        select(0, sections[0].second)
+    }
+
+    private fun select(index: Int, build: () -> List<View>) {
+        navItems.forEachIndexed { i, v ->
+            v.background = if (i == index) rounded(if (Ui.isLight(this)) 0xFFDDE3EC.toInt() else 0xFF2C3646.toInt(), 26) else null
+        }
+        content.removeAllViews()
+        build().forEach { content.addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)) }
+    }
+
+    // --- Spoken alerts: a Ukrainian voice (RHVoice) ---
+
+    private fun voiceCard(): View {
+        val status = TextView(this).apply { textSize = 17f; typeface = sfSemibold; setPadding(dpv(4), dpv(10), dpv(4), dpv(10)) }
+        val action = filledPill("", Ui.BLUE) {}
+        val test = tintedPill("Перевірити голос", Ui.textc(this)) { CarRemoteService.testAlarm(this) }
+        var busy = false
+        fun render() {
+            ua.zaika.carremote.air.VoiceSetup.check(this) { st ->
+                runOnUiThread {
+                    if (busy) return@runOnUiThread
+                    when (st) {
+                        ua.zaika.carremote.air.VoiceSetup.State.READY -> {
+                            status.text = "✓ Український голос встановлено"; status.setTextColor(Ui.GREEN)
+                            action.text = "Змінити голос"; action.setOnClickListener { ua.zaika.carremote.air.VoiceSetup.openVoiceList(this) }
+                        }
+                        ua.zaika.carremote.air.VoiceSetup.State.NO_UKRAINIAN -> {
+                            status.text = "RHVoice є, але без української. Додайте голос «Українська»."; status.setTextColor(Ui.ORANGE)
+                            action.text = "Додати український голос"; action.setOnClickListener { ua.zaika.carremote.air.VoiceSetup.openVoiceList(this) }
+                        }
+                        ua.zaika.carremote.air.VoiceSetup.State.NO_ENGINE -> {
+                            status.text = "Голос не встановлено — під час тривоги лише сигнал"; status.setTextColor(Ui.ORANGE)
+                            action.text = "Встановити український голос"
+                            action.setOnClickListener {
+                                if (busy) return@setOnClickListener
+                                busy = true; action.alpha = 0.5f
+                                Thread {
+                                    val err = runCatching {
+                                        ua.zaika.carremote.air.VoiceSetup.install(applicationContext) { p -> runOnUiThread { status.text = p; status.setTextColor(Ui.textc(this)) } }
+                                    }.exceptionOrNull()
+                                    runOnUiThread {
+                                        busy = false; action.alpha = 1f
+                                        if (err != null) { status.text = err.message ?: "Не вдалося встановити"; status.setTextColor(Ui.RED) }
+                                        else { ua.zaika.carremote.air.VoiceSetup.openVoiceList(this); render() }
+                                    }
+                                }.start()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        render()
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(status)
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(action, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { setMargins(0, 0, dpv(12), 0) })
+                addView(test)
+            })
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Coming back from RHVoice's voice list: refresh the voice section if it is open.
+        if (::content.isInitialized && navItems.getOrNull(2)?.background != null) navItems[2].performClick()
     }
 
     // --- Telegram pairing ---
@@ -136,7 +224,7 @@ class SettingsActivity : Activity() {
             setOnFocusChangeListener { _, focused -> frame.setStroke(dpv(2), if (focused) Ui.ORANGE else Ui.sepc(this@SettingsActivity)) }
         }
         val fieldWrap = LinearLayout(this).apply { setPadding(dpv(16), dpv(4), dpv(16), dpv(4)); addView(field, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)) }
-        val action = TextView(this).apply { setTextColor(Ui.ORANGE); textSize = 16f; typeface = sfSemibold; setPadding(dpv(16), dpv(14), dpv(16), dpv(16)) }
+        val action = TextView(this).apply { setTextColor(Ui.BLUE); textSize = 18f; typeface = sfSemibold; setPadding(dpv(16), dpv(14), dpv(16), dpv(16)) }
         var editing = false
         var pending = false
 
@@ -203,7 +291,7 @@ class SettingsActivity : Activity() {
     private fun updateCard(): View {
         val status = TextView(this).apply { textSize = 16f; typeface = sfSemibold; setPadding(dpv(16), dpv(16), dpv(16), dpv(4)) }
         val notes = TextView(this).apply { setTextColor(Ui.text2c(context)); textSize = 13f; typeface = sf; setPadding(dpv(16), dpv(2), dpv(16), dpv(6)) }
-        val action = TextView(this).apply { setTextColor(Ui.ORANGE); textSize = 16f; typeface = sfSemibold; setPadding(dpv(16), dpv(12), dpv(16), dpv(16)) }
+        val action = TextView(this).apply { setTextColor(Ui.BLUE); textSize = 18f; typeface = sfSemibold; setPadding(dpv(16), dpv(12), dpv(16), dpv(16)) }
         var busy = false
         fun render(msg: String? = null, color: Int = Ui.textc(this)) {
             val rel = ua.zaika.carremote.update.Updater.available(prefs)
@@ -241,38 +329,37 @@ class SettingsActivity : Activity() {
     // --- grouped-list builders ---
 
     private fun header(text: String) = TextView(this).apply {
-        this.text = text; setTextColor(Ui.text2c(context)); textSize = 12f; typeface = sfSemibold
-        setPadding(dpv(10), dpv(16), dpv(10), dpv(7))
+        this.text = text; setTextColor(Ui.text2c(context)); textSize = 17f; typeface = sf
+        setPadding(dpv(4), dpv(14), dpv(4), dpv(8))
     }
 
     private fun note(text: String) = TextView(this).apply {
-        this.text = text; setTextColor(Ui.text2c(context)); textSize = 12f; typeface = sf
-        setPadding(dpv(10), dpv(7), dpv(10), 0)
+        this.text = text; setTextColor(Ui.text2c(context)); textSize = 14f; typeface = sf
+        setPadding(dpv(4), dpv(10), dpv(4), 0)
     }
 
     private fun card(vararg rows: View) = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        background = rounded(Ui.card(context), 16)
         rows.forEachIndexed { i, row ->
             addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             if (i < rows.size - 1) addView(View(this@SettingsActivity).apply {
                 setBackgroundColor(Ui.sepc(this@SettingsActivity))
-                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1).apply { setMargins(dpv(16), 0, 0, 0) }
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1)
             })
         }
     }
 
     private fun switchRow(label: String, key: String, default: Boolean, onChange: ((Boolean) -> Unit)? = null) =
         Switch(this).apply {
-            text = label; setTextColor(Ui.textc(context)); textSize = 16f; typeface = sf
+            text = label; setTextColor(Ui.textc(context)); textSize = 19f; typeface = sf
             isChecked = prefs.getBoolean(key, default)
-            setPadding(dpv(16), dpv(16), dpv(16), dpv(16))
-            val off = if (Ui.isLight(context)) 0xFFE4E4E6.toInt() else 0xFF3A3A3C.toInt()
+            setPadding(dpv(4), dpv(20), dpv(4), dpv(20))
+            val off = if (Ui.isLight(context)) 0xFFCDD3DC.toInt() else 0xFF3A4556.toInt()
             thumbTintList = ColorStateList.valueOf(0xFFFFFFFF.toInt())
-            trackTintList = ColorStateList.valueOf(if (isChecked) Ui.GREEN else off)
+            trackTintList = ColorStateList.valueOf(if (isChecked) Ui.BLUE else off)
             setOnCheckedChangeListener { _, on ->
                 prefs.edit().putBoolean(key, on).apply()
-                trackTintList = ColorStateList.valueOf(if (on) Ui.GREEN else off)
+                trackTintList = ColorStateList.valueOf(if (on) Ui.BLUE else off)
                 onChange?.invoke(on)
             }
         }
@@ -283,15 +370,15 @@ class SettingsActivity : Activity() {
     ) = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dpv(16), dpv(6), dpv(16), dpv(6))
+        setPadding(dpv(4), dpv(10), dpv(4), dpv(10))
         addView(TextView(this@SettingsActivity).apply {
-            text = label; setTextColor(Ui.textc(context)); textSize = 16f; typeface = sf
+            text = label; setTextColor(Ui.textc(context)); textSize = 19f; typeface = sf
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         addView(EditText(this@SettingsActivity).apply {
             this.hint = hint
             setText(prefs.getString(key, defaultText))
             gravity = Gravity.END
-            setTextColor(Ui.textc(context)); setHintTextColor(Ui.text2c(context)); textSize = 16f
+            setTextColor(Ui.textc(context)); setHintTextColor(Ui.text2c(context)); textSize = 19f
             background = null
             inputType = when {
                 decimal -> InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL

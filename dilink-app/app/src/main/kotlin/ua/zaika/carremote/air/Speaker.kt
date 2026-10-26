@@ -22,6 +22,7 @@ class Speaker(context: Context) {
     private val appContext = context.applicationContext
     private var tts: TextToSpeech? = null
     private var ready = false
+    private var pending: String? = null // spoken as soon as the engine is ready
 
     init {
         initWith(RHVOICE) // prefer RHVoice (has Ukrainian); falls back to default on failure
@@ -64,11 +65,12 @@ class Speaker(context: Context) {
         })
         ready = true
         Log.i(TAG, "ready (engine=$engine)")
+        pending?.let { pending = null; speak(it) }
     }
 
     fun speak(text: String) {
         val engine = tts
-        if (!ready || engine == null) { Log.w(TAG, "speak() but not ready"); return }
+        if (!ready || engine == null) { Log.w(TAG, "speak() before ready; queued"); pending = text; return }
         val params = Bundle().apply {
             putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_ALARM)
             putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
@@ -95,6 +97,6 @@ class Speaker(context: Context) {
 
     private companion object {
         const val TAG = "AirSpeaker"
-        const val RHVOICE = "com.github.olga_yakovleva.rhvoice.android"
+        const val RHVOICE = VoiceSetup.RHVOICE
     }
 }

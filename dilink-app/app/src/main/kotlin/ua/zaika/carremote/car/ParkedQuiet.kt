@@ -5,13 +5,14 @@ import android.os.SystemClock
 import ua.zaika.carremote.adb.AdbShell
 
 /**
- * Locked, closed and nobody in the seats for a minute: dim the head unit to minimum and send the
- * daytime running lights off, so a car kept online («Доступність на стоянці», or simply charging)
+ * Locked, closed and nobody in the seats for a minute: switch the head unit's backlight off and send
+ * the daytime running lights off, so a car kept online («Доступність на стоянці», or simply charging)
  * does not stand lit up in the yard. The car itself stays awake and reachable — only the screen
  * and the DRL go quiet. Unlocking, opening a door or sitting in brings the screen back.
  *
- * DiLink does not let an app switch the panel backlight off, so "screen off" is minimum brightness.
- * The previous brightness is kept in prefs, so a restart of the app while dimmed still restores it.
+ * The screen goes off the way DiLink's own «screen off» button does it: SystemUI calls BYD's
+ * IDisplayManager.turnBacklightOff (transaction 45; 46 = on). A touch on the panel lights it again.
+ * Android's screen_brightness setting is ignored by DiLink, so it is not used.
  */
 class ParkedQuiet(private val car: Autoservice, private val adb: AdbShell, private val prefs: SharedPreferences) {
     private var since = 0L
@@ -34,10 +35,11 @@ class ParkedQuiet(private val car: Autoservice, private val adb: AdbShell, priva
     private fun nobodyInside() = Fids.OCCUPANCY.none { car.getInt(Fids.DEV_SEATS, it) == 2 }
 
     private fun goQuiet(): String {
-        val mode = adb.exec("settings get system screen_brightness_mode")?.trim()
-        val level = adb.exec("settings get system screen_brightness")?.trim()
-        prefs.edit().putBoolean(ACTIVE, true).putString(SAVED_MODE, mode).putString(SAVED_LEVEL, level).apply()
-        adb.exec("settings put system screen_brightness_mode 0; settings put system screen_brightness 0")
+        legacyRestore()
+        prefs.edit().putBoolean(ACTIVE, true).apply()
+        adb.exec("service call display $TX_BACKLIGHT_OFF i32 0 i64 0")
+        Thread.sleep(500)
+        val screenOff = backlightOff()
         val sent = car.write(Fids.DEV_LIGHTS, Fids.DRL_SET, 2)
         Thread.sleep(800)
         val drl = when {
@@ -45,15 +47,27 @@ class ParkedQuiet(private val car: Autoservice, private val adb: AdbShell, priva
             car.getInt(Fids.DEV_LIGHTS, Fids.DRL_STATE) == 1 -> "команду прийнято, але вогні досі горять"
             else -> "вимкнено"
         }
-        return "🌙 Авто зачинене й порожнє: екран притемнено, ходові вогні — $drl. " +
-            "Авто лишається на зв'язку; відчините — екран повернеться."
+        val screen = if (screenOff) "екран вимкнено" else "екран вимкнути не вдалося"
+        return "🌙 Авто зачинене й порожнє: $screen, ходові вогні — $drl. " +
+            "Авто лишається на зв'язку; відчините — екран увімкнеться."
     }
 
+    /** True when DiLink reports its one-key backlight-off state. */
+    private fun backlightOff() =
+        adb.exec("dumpsys display | grep -m1 mOneKeyBacklight")?.contains("mOneKeyBacklight=true") == true
+
     private fun restore() {
+        legacyRestore()
+        adb.exec("service call display $TX_BACKLIGHT_ON i32 0 i64 0") ?: return
+        prefs.edit().putBoolean(ACTIVE, false).apply()
+    }
+
+    /** Undo the earlier build's minimum-brightness "dim", once. */
+    private fun legacyRestore() {
+        val level = prefs.getString(SAVED_LEVEL, null)?.takeIf { it.matches(Regex("\\d{1,3}")) } ?: return
         val mode = prefs.getString(SAVED_MODE, null)?.takeIf { it.matches(Regex("[01]")) } ?: "0"
-        val level = prefs.getString(SAVED_LEVEL, null)?.takeIf { it.matches(Regex("\\d{1,3}")) } ?: "128"
         if (adb.exec("settings put system screen_brightness $level; settings put system screen_brightness_mode $mode") != null)
-            prefs.edit().putBoolean(ACTIVE, false).apply()
+            prefs.edit().remove(SAVED_LEVEL).remove(SAVED_MODE).apply()
     }
 
     companion object {
@@ -62,5 +76,7 @@ class ParkedQuiet(private val car: Autoservice, private val adb: AdbShell, priva
         private const val SAVED_MODE = "parked_quiet_mode"
         private const val SAVED_LEVEL = "parked_quiet_level"
         private const val HOLD_MS = 60_000L
+        private const val TX_BACKLIGHT_OFF = 45
+        private const val TX_BACKLIGHT_ON = 46
     }
 }

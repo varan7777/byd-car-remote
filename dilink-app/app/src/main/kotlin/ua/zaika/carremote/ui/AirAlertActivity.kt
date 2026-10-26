@@ -101,8 +101,19 @@ class AirAlertActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Ui.BG)
             setPadding(dp(22), dp(20), dp(22), dp(20))
-            addView(TextView(context).apply {
-                text = "Повітряна тривога"; setTextColor(Ui.TEXT); textSize = 24f; typeface = sfSemibold
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(TextView(context).apply {
+                    text = "‹"; setTextColor(Ui.TEXT); textSize = 34f; typeface = sf
+                    gravity = Gravity.CENTER
+                    background = tileBg(radius = 22)
+                    setOnClickListener { finish() }
+                    contentDescription = "Назад"
+                }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { setMargins(0, 0, dp(14), 0) })
+                addView(TextView(context).apply {
+                    text = "Повітряна тривога"; setTextColor(Ui.TEXT); textSize = 24f; typeface = sfSemibold
+                })
             })
             addView(TextView(context).apply {
                 text = "NEPTUN · карта загроз навколо авто"; setTextColor(Ui.TEXT2); textSize = 14f; typeface = sf

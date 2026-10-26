@@ -73,10 +73,19 @@ class TripsActivity : Activity() {
             setBackgroundColor(pal.bg)
             setPadding(dp(12), dp(10), dp(12), 0)
         }
-        root.addView(TextView(this).apply {
-            text = "Заряджання"
-            setTextColor(pal.text); textSize = 26f; typeface = sfBold
-            setPadding(dp(4), dp(2), 0, dp(8))
+        root.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, dp(2), 0, dp(8))
+            addView(TextView(context).apply {
+                text = "‹"; setTextColor(pal.text); textSize = 34f; typeface = sf
+                gravity = android.view.Gravity.CENTER; contentDescription = "Назад"
+                background = tileBg(radius = 22)
+                setOnClickListener { finish() }
+            }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { setMargins(dp(4), 0, dp(14), 0) })
+            addView(TextView(context).apply {
+                text = "Заряджання"; setTextColor(pal.text); textSize = 26f; typeface = sfSemibold
+            })
         })
 
         // Stop / resume charging (works when the cable is connected).

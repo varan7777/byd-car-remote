@@ -1,6 +1,7 @@
 package ua.zaika.carremote
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -29,6 +30,12 @@ import ua.zaika.carremote.ui.TripsActivity
 import ua.zaika.carremote.ui.Ui
 import ua.zaika.carremote.ui.AdBanner
 import ua.zaika.carremote.ui.dpv
+import ua.zaika.carremote.ui.filledPill
+import ua.zaika.carremote.ui.rounded
+import ua.zaika.carremote.ui.sfSemibold
+import ua.zaika.carremote.ui.tintedPill
+import ua.zaika.carremote.telegram.InlineKeyboard
+import ua.zaika.carremote.telegram.Reply
 import ua.zaika.carremote.ui.sf
 
 /** Live dashboard on the head unit. The remote itself runs in [CarRemoteService] + Telegram. */
@@ -56,12 +63,18 @@ class MainActivity : Activity() {
         }
         dashboard.onTile = { tile ->
             when (tile) {
-                DashboardView.Tile.CLIMATE -> toggleClimate()
-                DashboardView.Tile.CLEAN_AIR -> cleanAir()
+                DashboardView.Tile.CLIMATE -> sheet("Клімат", listOf(
+                    "Увімкнути" to "climate_on", "Вимкнути" to "climate_off",
+                    "Температура −1°" to "temp_down", "Температура +1°" to "temp_up",
+                ))
+                DashboardView.Tile.LOCKS -> sheet("Замки", listOf("Замкнути" to "lock", "Відімкнути" to "unlock"))
+                DashboardView.Tile.TRUNK -> sheet("Багажник", listOf("Відкрити" to "trunk_open", "Закрити" to "trunk_close"))
+                DashboardView.Tile.WINDOWS -> sheet("Вікна", listOf("Відкрити" to "windows_open", "Закрити" to "windows_close"))
+                DashboardView.Tile.SUNROOF -> sheet("Люк", listOf("Відкрити" to "sunroof_open", "Закрити" to "sunroof_close"))
+                DashboardView.Tile.CLEAN_AIR -> command("clean_air")
                 DashboardView.Tile.CHARGING -> startActivity(Intent(this, TripsActivity::class.java))
                 DashboardView.Tile.AIR_ALERT -> openAirMap()
                 DashboardView.Tile.SETTINGS -> startActivity(Intent(this, SettingsActivity::class.java))
-                else -> toast("Керування з планшета — через бот @Varanbyd_bot")
             }
         }
 
@@ -95,43 +108,78 @@ class MainActivity : Activity() {
 
     override fun onDestroy() { ui.cancel(); adb.close(); super.onDestroy() }
 
-    /** Climate on/off — the one control verified on this car; confirmed by readback. */
-    private fun toggleClimate() {
-        val on = dashboard.snapshot?.acOn ?: return toast("Авто не на зв'язку")
-        val c = if (on) Controls.CLIMATE_OFF else Controls.CLIMATE_ON
+    /**
+     * Tile actions run through the very same [CommandRouter] as the Telegram bot, so the safety
+     * rules (Park only for moving parts, unlock / locked-trunk confirmation, readback) match.
+     */
+    private val router by lazy { CommandRouter(car, LOCAL_CHAT, prefs) }
+
+    private fun command(id: String) {
         ui.launch {
-            val ok = withContext(Dispatchers.IO) {
-                if (!car.isReachable()) null
-                else { car.write(c.dev, c.fid, c.value); delay(1_500); car.getInt(Fids.DEV_CLIMATE, Fids.AC_STATUS) == c.value }
-            }
-            toast(when (ok) { null -> "Авто не на зв'язку"; true -> if (on) "Клімат вимкнено" else "Клімат увімкнено"; else -> "Команду надіслано (без підтвердження)" })
+            val reply = withContext(Dispatchers.IO) { runCatching { router.handle(LOCAL_CHAT, id) }.getOrNull() }
+            if (reply != null) showReply(reply) else toast("Авто не на зв'язку")
         }
     }
 
-    /** One-shot cabin air purification (verified on this car: status flips 0→1). */
-    private fun cleanAir() {
-        ui.launch {
-            val r = withContext(Dispatchers.IO) {
-                if (!car.isReachable()) null
-                else {
-                    val c = Controls.CLEAN_AIR
-                    car.write(c.dev, c.fid, c.value)
-                    car.getInt(Fids.DEV_CLIMATE, Fids.QUICK_CLEAN_AIR) == 1
-                }
-            }
-            toast(when (r) {
-                null -> "Авто не на зв'язку"
-                true -> "🌬 Очищення повітря запущено"
-                else -> "Команду надіслано (без підтвердження)"
+    /** A DiLink-style pop-up with the tile's actions. */
+    private fun sheet(title: String, actions: List<Pair<String, String>>) {
+        lateinit var dialog: AlertDialog
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dpv(24), dpv(22), dpv(24), dpv(22))
+            background = rounded(Ui.CARD, 22)
+            addView(TextView(context).apply {
+                text = title; setTextColor(Ui.TEXT); textSize = 22f; typeface = sfSemibold
+                setPadding(0, 0, 0, dpv(14))
             })
+            actions.chunked(2).forEach { row ->
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    row.forEach { (label, id) ->
+                        addView(tintedPill(label, Ui.TEXT) { dialog.dismiss(); command(id) },
+                            LinearLayout.LayoutParams(0, WRAP, 1f).apply { setMargins(dpv(5), dpv(5), dpv(5), dpv(5)) })
+                    }
+                })
+            }
+            addView(filledPill("Закрити", 0xFF3A4556.toInt()) { dialog.dismiss() },
+                LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(dpv(5), dpv(12), dpv(5), 0) })
         }
+        dialog = AlertDialog.Builder(this).setView(box).create()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.show()
     }
 
-    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    /** Shows the router's answer; its inline buttons (confirmations) work here too. */
+    private fun showReply(reply: Reply) {
+        val buttons = (reply.keyboard as? InlineKeyboard)?.rows?.flatten().orEmpty().filter { it.data != "menu" }
+        if (buttons.isEmpty()) { toast(reply.text); return }
+        lateinit var dialog: AlertDialog
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dpv(24), dpv(22), dpv(24), dpv(22))
+            background = rounded(Ui.CARD, 22)
+            addView(TextView(context).apply {
+                text = reply.text; setTextColor(Ui.TEXT); textSize = 18f; typeface = sf
+                setPadding(0, 0, 0, dpv(16))
+            })
+            buttons.forEach { b ->
+                addView(filledPill(b.label, Ui.BLUE) { dialog.dismiss(); command(b.data) },
+                    LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(0, dpv(5), 0, dpv(5)) })
+            }
+            addView(filledPill("Скасувати", 0xFF3A4556.toInt()) { dialog.dismiss() },
+                LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(0, dpv(5), 0, 0) })
+        }
+        dialog = AlertDialog.Builder(this).setView(box).create()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.show()
+    }
+
+    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
     private fun openAirMap() = startActivity(Intent(this, AirAlertActivity::class.java))
 
     private companion object {
         const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
+        const val LOCAL_CHAT = 1L // the head unit itself acts as the owner for its own screen
     }
 }
