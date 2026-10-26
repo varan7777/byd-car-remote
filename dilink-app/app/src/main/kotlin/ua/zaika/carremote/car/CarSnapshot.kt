@@ -23,6 +23,8 @@ data class CarSnapshot(
     val sunroofPct: Int?,
     val pm25In: Int? = null,
     val pm25Out: Int? = null,
+    val acOn: Boolean? = null,
+    val acTempC: Int? = null,
 ) {
     val gearName: String get() = when (gear) { 1 -> "P"; 2 -> "R"; 3 -> "N"; 4 -> "D"; else -> "—" }
 
@@ -72,6 +74,8 @@ data class CarSnapshot(
                 sunroofPct = i(Fids.DEV_BODYWORK, Fids.SUNROOF),
                 pm25In = i(Fids.DEV_PM25, Fids.PM25_VALUE_IN),
                 pm25Out = i(Fids.DEV_PM25, Fids.PM25_VALUE_OUT),
+                acOn = i(Fids.DEV_CLIMATE, Fids.AC_STATUS)?.let { it == 1 },
+                acTempC = i(Fids.DEV_CLIMATE, Fids.AC_TEMP),
             )
         }
     }

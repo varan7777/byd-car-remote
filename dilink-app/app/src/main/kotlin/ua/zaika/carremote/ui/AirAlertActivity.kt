@@ -87,34 +87,42 @@ class AirAlertActivity : Activity() {
 
         banner = TextView(this).apply {
             setTextColor(Color.WHITE)
-            textSize = 14f; typeface = sfSemibold
-            setPadding(dp(14), dp(10), dp(14), dp(10))
-            background = rounded(0xE6101418.toInt(), 14)
+            textSize = 16f; typeface = sfSemibold
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = rounded(0xFF243042.toInt(), 16)
             text = "Завантаження повітряної обстановки…"
         }
 
-        val recenter = filledPill("📍 Моє місце", Ui.BLUE) { recenter() }
-        val gear = filledPill("⚙", 0xE62C2C2E.toInt()) {
-            settingsPanel.visibility = if (settingsPanel.visibility == View.GONE) View.VISIBLE else View.GONE
-        }
-        val buttons = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(gear, LinearLayout.LayoutParams(WRAP, WRAP).apply { setMargins(0, 0, dp(8), 0) })
-            addView(recenter)
-        }
-
         settingsPanel = buildSettingsPanel()
+        val recenter = filledPill("Моє місце на карті", Ui.BLUE) { recenter() }
 
-        setContentView(FrameLayout(this).apply {
-            setBackgroundColor(Color.parseColor("#0E1420"))
-            addView(map, FrameLayout.LayoutParams(MATCH, MATCH))
-            addView(banner, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP).apply { setMargins(dp(10), dp(10), dp(10), 0) })
-            addView(settingsPanel, FrameLayout.LayoutParams(dp(300), WRAP, Gravity.TOP or Gravity.END).apply {
-                setMargins(0, dp(64), dp(12), 0)
+        // Factory DiLink layout: a navy side panel on the left, the content (map) on the right.
+        val side = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Ui.BG)
+            setPadding(dp(22), dp(20), dp(22), dp(20))
+            addView(TextView(context).apply {
+                text = "Повітряна тривога"; setTextColor(Ui.TEXT); textSize = 24f; typeface = sfSemibold
             })
-            addView(buttons, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.END).apply {
-                setMargins(dp(16), dp(16), dp(16), dp(16))
+            addView(TextView(context).apply {
+                text = "NEPTUN · карта загроз навколо авто"; setTextColor(Ui.TEXT2); textSize = 14f; typeface = sf
+                setPadding(0, dp(4), 0, dp(16))
             })
+            addView(banner, LinearLayout.LayoutParams(MATCH, WRAP))
+            addView(settingsPanel, LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(0, dp(16), 0, 0) })
+            addView(View(context), LinearLayout.LayoutParams(MATCH, 0, 1f))
+            addView(recenter, LinearLayout.LayoutParams(MATCH, WRAP))
+        }
+
+        setContentView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(Ui.BG)
+            addView(side, LinearLayout.LayoutParams(dp(380), MATCH))
+            addView(FrameLayout(context).apply {
+                setPadding(0, dp(12), dp(12), dp(12))
+                clipToPadding = true
+                addView(map, FrameLayout.LayoutParams(MATCH, MATCH))
+            }, LinearLayout.LayoutParams(0, MATCH, 1f))
         })
     }
 
@@ -155,10 +163,10 @@ class AirAlertActivity : Activity() {
         banner.text = s.bannerText(radius)
         // Red: air-raid in our oblast or a threat within radius. Amber: threats but far. Green: clear.
         val c = when {
-            s.oblastAlert != null || s.within.isNotEmpty() -> 0xF0B3261E.toInt()
-            s.nearest != null -> 0xF0B26B00.toInt()
-            s.error != null -> 0xE6704000.toInt()
-            else -> 0xF01C4A2E.toInt()
+            s.oblastAlert != null || s.within.isNotEmpty() -> 0xFF8E2A24.toInt()
+            s.nearest != null -> 0xFF7A5410.toInt()
+            s.error != null -> 0xFF243042.toInt()
+            else -> 0xFF1E4A36.toInt()
         }
         (banner.background as? android.graphics.drawable.GradientDrawable)?.setColor(c) ?: banner.setBackgroundColor(c)
         threatsOverlay.threats = s.all
@@ -194,7 +202,7 @@ class AirAlertActivity : Activity() {
 
     private fun buildSettingsPanel(): LinearLayout {
         val current = prefs.getInt(CarRemoteService.KEY_RADIUS, CarRemoteService.DEFAULT_RADIUS)
-        val txt = Ui.textc(this)
+        val txt = Ui.TEXT
         radiusLabel = TextView(this).apply {
             setTextColor(txt); textSize = 15f; typeface = sfSemibold
             text = "Радіус тривоги: $current км"
@@ -215,19 +223,18 @@ class AirAlertActivity : Activity() {
         val voice = Switch(this).apply {
             text = "Голос тривоги"; setTextColor(txt); textSize = 15f; typeface = sf
             isChecked = prefs.getBoolean(CarRemoteService.KEY_VOICE, true)
-            val off = if (Ui.isLight(this@AirAlertActivity)) 0xFFE4E4E6.toInt() else 0xFF3A3A3C.toInt()
+            val off = 0xFF3A4556.toInt()
             thumbTintList = android.content.res.ColorStateList.valueOf(0xFFFFFFFF.toInt())
-            trackTintList = android.content.res.ColorStateList.valueOf(if (isChecked) Ui.GREEN else off)
+            trackTintList = android.content.res.ColorStateList.valueOf(if (isChecked) Ui.BLUE else off)
             setOnCheckedChangeListener { _, on ->
                 prefs.edit().putBoolean(CarRemoteService.KEY_VOICE, on).apply()
-                trackTintList = android.content.res.ColorStateList.valueOf(if (on) Ui.GREEN else off)
+                trackTintList = android.content.res.ColorStateList.valueOf(if (on) Ui.BLUE else off)
             }
         }
-        val test = filledPill("🔊 Перевірити сигнал", Ui.BLUE) { CarRemoteService.testAlarm(this@AirAlertActivity) }
+        val test = tintedPill("Перевірити сигнал", Ui.TEXT) { CarRemoteService.testAlarm(this@AirAlertActivity) }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-            background = rounded(if (Ui.isLight(this@AirAlertActivity)) 0xF6FFFFFF.toInt() else 0xF21C1C1E.toInt(), 16)
+            background = tileBg()
             setPadding(dp(16), dp(14), dp(16), dp(14))
             addView(radiusLabel)
             addView(slider)

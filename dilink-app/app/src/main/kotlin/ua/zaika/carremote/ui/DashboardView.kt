@@ -4,164 +4,323 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
-import android.graphics.Typeface
+import android.view.MotionEvent
 import android.view.View
+import ua.zaika.carremote.air.AirState
 import ua.zaika.carremote.car.CarSnapshot
 
 /**
- * Single-screen live dashboard, drawn on a Canvas in an Apple-flavoured style: a SOC ring that
- * takes the system accent colour by charge level, over a soft vertical-gradient background, with
- * a grid of rounded cards each carrying its own accent dot and a big value.
+ * The live dashboard, laid out like the factory DiLink «My car» screen: a 3×3 grid of
+ * translucent tiles on the left (icon, name, state; the light tile means "on / secured"),
+ * a stats card under it, and a large battery read-out on the right over a dusk-navy backdrop.
+ * Tiles are tappable; [onTile] receives which one.
  */
 class DashboardView(context: Context) : View(context) {
 
+    enum class Tile { CLIMATE, LOCKS, TRUNK, WINDOWS, SUNROOF, CLEAN_AIR, CHARGING, AIR_ALERT, SETTINGS }
+
     var snapshot: CarSnapshot? = null
         set(value) { field = value; invalidate() }
+    var air: AirState? = null
+        set(value) { field = value; invalidate() }
+    var onTile: ((Tile) -> Unit)? = null
 
     private val d = resources.displayMetrics.density
     private fun dp(v: Float) = v * d
 
-    private val light = Ui.isLight(context)
-    private val cMain = if (light) 0xFF000000.toInt() else 0xFFF2F5FA.toInt()
-    private val cMuted = if (light) 0xFF8E8E93.toInt() else 0xFF8A97AD.toInt()
-    private val cTile = if (light) 0xFFFFFFFF.toInt() else 0xFF1A2230.toInt()
-    private val cBorder = if (light) 0x0F000000 else 0x14FFFFFF
-    private val cArcBg = if (light) 0xFFE3E3E8.toInt() else 0xFF2A3345.toInt()
+    private val tileRects = LinkedHashMap<Tile, RectF>()
+    private var pressed: Tile? = null
 
-    // Apple system palette (dark).
-    private val blue = 0xFF0A84FF.toInt()
-    private val green = 0xFF30D158.toInt()
-    private val indigo = 0xFF5E5CE6.toInt()
-    private val orange = 0xFFFF9F0A.toInt()
-    private val red = 0xFFFF453A.toInt()
-    private val teal = 0xFF64D2FF.toInt()
-    private val purple = 0xFFBF5AF2.toInt()
-    private val yellow = 0xFFFFD60A.toInt()
-    private val pink = 0xFFFF375F.toInt()
-    private val mint = 0xFF63E6E2.toInt()
-
-    private val arcBg = stroke(cArcBg, dp(16f))
-    private val arcFg = stroke(green, dp(16f)).apply { strokeCap = Paint.Cap.ROUND }
-    private val tileBg = fill(cTile)
-    private val tileBorder = stroke(cBorder, dp(1f))
-    private val dot = fill(green)
-    private val textMain = text(cMain).apply { typeface = Typeface.create("sans-serif", Typeface.BOLD) }
-    private val textValue = text(cMain).apply { typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL) }
-    private val textMuted = text(cMuted)
-    private var bgPaint: Paint? = null
+    private val bgPaint = fill(0)
+    private val glowPaint = fill(0)
+    private val tileFill = fill(Ui.TILE)
+    private val tileBorder = stroke(Ui.TILE_BORDER, dp(1f))
+    private val icon = stroke(Ui.TEXT, dp(2f)).apply { strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+    private val title = text(Ui.TEXT).apply { typeface = sf }
+    private val sub = text(Ui.TEXT2).apply { typeface = sf }
+    private val big = text(Ui.TEXT).apply { typeface = sfLight }
+    private val bar = fill(Ui.GREEN)
+    private val barBg = fill(0x33FFFFFF)
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
-        val top = if (light) 0xFFF2F2F7.toInt() else 0xFF0E1420.toInt()
-        val bot = if (light) 0xFFFFFFFF.toInt() else 0xFF151D2C.toInt()
-        bgPaint = fill(0).apply {
-            shader = LinearGradient(0f, 0f, 0f, h.toFloat(), top, bot, Shader.TileMode.CLAMP)
-        }
+        // Dusk sky → lake: lighter blue-grey at the horizon, deep navy at the bottom.
+        bgPaint.shader = LinearGradient(
+            0f, 0f, 0f, h.toFloat(),
+            intArrayOf(0xFF2B3647.toInt(), 0xFF3A475B.toInt(), 0xFF243042.toInt(), 0xFF151C28.toInt()),
+            floatArrayOf(0f, 0.38f, 0.55f, 1f), Shader.TileMode.CLAMP,
+        )
+        glowPaint.shader = RadialGradient(
+            w * 0.68f, h * 0.48f, w * 0.38f, 0x335A7AA8, 0x005A7AA8, Shader.TileMode.CLAMP,
+        )
     }
 
     override fun onDraw(canvas: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
-        val pad = dp(14f)
-        val leftW = w * 0.36f
-
-        bgPaint?.let { canvas.drawRect(0f, 0f, w, h, it) }
+        canvas.drawRect(0f, 0f, w, h, bgPaint)
+        canvas.drawRect(0f, 0f, w, h, glowPaint)
 
         val snap = snapshot
-        if (snap == null) {
-            textMuted.textSize = dp(17f); textMuted.textAlign = Paint.Align.CENTER
-            canvas.drawText("Очікування даних з авто…", w / 2, h / 2, textMuted)
-            return
+        val pad = dp(18f)
+        val gap = dp(14f)
+
+        // --- Left: hint + 3×3 tiles + stats card ---
+        sub.textSize = dp(15f); sub.textAlign = Paint.Align.LEFT
+        canvas.drawText(if (snap == null) "Очікування даних з авто…" else "Торкніться плитки, щоб керувати", pad, pad + dp(12f), sub)
+
+        val gridTop = pad + dp(30f)
+        val statsH = dp(84f)
+        val avail = h - gridTop - statsH - gap - pad
+        val tileSize = minOf(avail / 3f - gap * 2f / 3f, (w * 0.42f - pad - gap * 2) / 3f)
+        tileRects.clear()
+        tiles(snap).forEachIndexed { i, t ->
+            val x = pad + (i % 3) * (tileSize + gap)
+            val y = gridTop + (i / 3) * (tileSize + gap)
+            val r = RectF(x, y, x + tileSize, y + tileSize)
+            tileRects[t.id] = r
+            drawTile(canvas, r, t)
         }
+        val gridRight = pad + tileSize * 3 + gap * 2
+        val statsTop = gridTop + tileSize * 3 + gap * 3
+        drawStats(canvas, RectF(pad, statsTop, gridRight, statsTop + statsH), snap)
 
-        // --- SOC ring (left), coloured by level ---
-        val cx = leftW / 2
-        val cy = h * 0.40f
-        val r = minOf(leftW, h) * 0.34f
-        val oval = RectF(cx - r, cy - r, cx + r, cy + r)
-        val soc = snap.soc ?: 0f
-        val socColor = when { soc >= 50 -> green; soc >= 20 -> orange; else -> red }
-        arcFg.color = socColor
-        canvas.drawArc(oval, 135f, 270f, false, arcBg)
-        canvas.drawArc(oval, 135f, 270f * (soc / 100f).coerceIn(0f, 1f), false, arcFg)
+        // --- Right: big battery read-out ---
+        drawHero(canvas, gridRight + pad * 2, w - pad, h, snap)
+    }
 
-        textMain.textAlign = Paint.Align.CENTER
-        textMain.textSize = dp(52f)
-        canvas.drawText(snap.soc?.let { "%.0f".format(it) } ?: "—", cx, cy + dp(16f), textMain)
-        textMuted.textAlign = Paint.Align.CENTER; textMuted.textSize = dp(15f)
-        canvas.drawText("SOC %", cx, cy + dp(42f), textMuted)
+    private class TileData(val id: Tile, val name: String, val state: String, val on: Boolean, val accent: Int? = null)
 
-        textValue.textAlign = Paint.Align.CENTER; textValue.textSize = dp(21f)
-        canvas.drawText(snap.mileageKm?.let { "%.0f км".format(it) } ?: "—", cx, cy + r + dp(46f), textValue)
-        textMuted.textSize = dp(15f)
-        val temps = listOfNotNull(
-            snap.insideC?.let { "салон $it°" },
-            snap.outsideC?.let { "надворі $it°" },
-        ).joinToString("   ")
-        if (temps.isNotEmpty()) canvas.drawText(temps, cx, cy + r + dp(74f), textMuted)
-
-        // --- Cards (right) ---
-        val battHot = (snap.battTempC ?: 0) >= 45
-        val unlocked = snap.locked == false
-        val tiles = listOf(
-            Triple("Здоров'я батареї", snap.soh?.let { "$it%" } ?: "—", green),
-            Triple("Темп. батареї", snap.battTempC?.let { "$it°C" } ?: "—", if (battHot) red else orange),
-            Triple("Бортова 12V", snap.v12?.let { "%.1f В".format(it) } ?: "—", blue),
-            Triple("Потужність", snap.powerKw?.let { "%.1f кВт".format(it) } ?: "—", purple),
-            Triple("Замок", snap.locked?.let { if (it) "зачинено" else "відчинено" } ?: "—", if (unlocked) red else teal),
-            Triple("Передача", snap.gearName, indigo),
-            Triple("Зарядка", snap.chargingText, mint),
-            Triple("Вікна", windowsText(snap.windowsOpenPct), yellow),
-            Triple("Люк", snap.sunroofPct?.let { if (it <= 0) "закритий" else "$it%" } ?: "—", pink),
-            Triple("Шини, бар", tiresText(snap.tiresBar), teal),
-            Triple("Повітря PM2.5", snap.pm25In?.let { "$it" } ?: "н/д", mint),
+    private fun tiles(s: CarSnapshot?): List<TileData> {
+        val a = air
+        val alertRed = a != null && (a.oblastAlert != null || a.within.isNotEmpty())
+        val alertState = when {
+            a == null -> "—"
+            a.oblastAlert != null -> "Тривога в області"
+            a.within.isNotEmpty() -> "Загроза поруч"
+            a.nearest != null -> "Загрози далеко"
+            a.error != null -> "Немає даних"
+            else -> "Спокійно"
+        }
+        val windowsOpen = s?.windowsOpenPct?.any { (it ?: 0) > 0 }
+        val charging = s?.bms == 1
+        return listOf(
+            TileData(Tile.CLIMATE, "Клімат",
+                when (s?.acOn) { true -> "Увімк. ${s.acTempC?.let { "$it°" } ?: ""}".trim(); false -> "Вимкнено"; null -> "—" },
+                s?.acOn == true),
+            TileData(Tile.LOCKS, "Замки",
+                when (s?.locked) { true -> "Зачинено"; false -> "Відчинено"; null -> "—" }, s?.locked == true,
+                if (s?.locked == false) Ui.RED else null),
+            TileData(Tile.TRUNK, "Багажник",
+                when (s?.trunkOpen) { true -> "Відкрито"; false -> "Закрито"; null -> "—" }, false,
+                if (s?.trunkOpen == true) Ui.ORANGE else null),
+            TileData(Tile.WINDOWS, "Вікна",
+                when (windowsOpen) { true -> "Відкриті"; false -> "Закриті"; null -> "—" }, false,
+                if (windowsOpen == true) Ui.ORANGE else null),
+            TileData(Tile.SUNROOF, "Люк",
+                s?.sunroofPct?.let { if (it <= 0) "Закритий" else "Відкрито $it%" } ?: "—", false,
+                if ((s?.sunroofPct ?: 0) > 0) Ui.ORANGE else null),
+            TileData(Tile.CLEAN_AIR, "Очищення", "Очистити повітря", false),
+            TileData(Tile.CHARGING, "Заряджання", s?.chargingText ?: "—", charging),
+            TileData(Tile.AIR_ALERT, "Тривоги", alertState, false, if (alertRed) Ui.RED else null),
+            TileData(Tile.SETTINGS, "Налаштування", "Car Remote", false),
         )
-        val cols = 2
-        val rows = (tiles.size + cols - 1) / cols
-        val gridX = leftW
-        val gridW = w - leftW - pad
-        val tileW = (gridW - pad * (cols - 1)) / cols
-        val tileH = (h - pad * (rows + 1)) / rows
-        val radius = dp(16f)
-        tiles.forEachIndexed { idx, (label, value, accent) ->
-            val c = idx % cols
-            val row = idx / cols
-            val x = gridX + c * (tileW + pad)
-            val y = pad + row * (tileH + pad)
-            val rect = RectF(x, y, x + tileW, y + tileH)
-            canvas.drawRoundRect(rect, radius, radius, tileBg)
-            canvas.drawRoundRect(rect, radius, radius, tileBorder)
-            // Accent dot.
-            dot.color = accent
-            canvas.drawCircle(x + dp(16f), y + dp(16f), dp(4.5f), dot)
-            // Label (SF subhead, secondary grey).
-            textMuted.textAlign = Paint.Align.LEFT
-            textMuted.textSize = minOf(dp(13f), tileH * 0.22f)
-            canvas.drawText(label, x + dp(30f), y + dp(22f), textMuted)
-            // Value — big, in the tile's accent colour.
-            val maxVal = when { value.length > 22 -> dp(19f); value.length > 10 -> dp(26f); else -> dp(34f) }
-            val labelBottom = y + dp(22f)
-            val room = (y + tileH - dp(12f)) - (labelBottom + dp(2f))
-            textValue.textAlign = Paint.Align.LEFT
-            textValue.color = accent
-            textValue.textSize = maxVal.coerceAtMost(room).coerceAtLeast(dp(10f))
-            canvas.drawText(value, x + dp(15f), y + tileH - dp(13f), textValue)
+    }
+
+    private fun drawTile(c: Canvas, r: RectF, t: TileData) {
+        val rad = dp(16f)
+        val isPressed = pressed == t.id
+        tileFill.color = when {
+            t.on -> Ui.TILE_ON
+            t.accent == Ui.RED -> 0xB34A1A1F.toInt()
+            isPressed -> 0xCC3E4C62.toInt()
+            else -> Ui.TILE
         }
-        textValue.color = cMain // restore for the mileage/temps text next frame
+        c.drawRoundRect(r, rad, rad, tileFill)
+        if (!t.on) c.drawRoundRect(r, rad, rad, tileBorder)
+
+        val fg = if (t.on) Ui.TILE_ON_TEXT else Ui.TEXT
+        val cx = r.centerX()
+        val iconSize = r.height() * 0.24f
+        icon.color = t.accent ?: fg
+        drawIcon(c, t.id, cx, r.top + r.height() * 0.30f, iconSize)
+
+        title.color = fg; title.textAlign = Paint.Align.CENTER
+        title.textSize = minOf(dp(17f), r.height() * 0.13f)
+        c.drawText(t.name, cx, r.top + r.height() * 0.64f, title)
+        sub.color = when { t.on -> 0xFF4A5468.toInt(); t.accent != null -> t.accent; else -> Ui.TEXT2 }
+        sub.textAlign = Paint.Align.CENTER
+        sub.textSize = minOf(dp(14f), r.height() * 0.11f)
+        c.drawText(ellipsize(t.state, sub, r.width() - dp(12f)), cx, r.top + r.height() * 0.82f, sub)
+        sub.color = Ui.TEXT2
     }
 
-    private fun tiresText(bar: List<Float?>): String {
-        if (bar.all { it == null }) return "—"
-        val labels = listOf("ПЛ", "ПП", "ЗЛ", "ЗП")
-        return bar.mapIndexed { i, v -> "${labels[i]} ${v?.let { "%.1f".format(it) } ?: "—"}" }.joinToString(" · ")
+    private fun drawStats(c: Canvas, r: RectF, s: CarSnapshot?) {
+        val rad = dp(16f)
+        tileFill.color = Ui.TILE
+        c.drawRoundRect(r, rad, rad, tileFill)
+        c.drawRoundRect(r, rad, rad, tileBorder)
+        val cells = listOf(
+            (s?.mileageKm?.let { "%,.0f км".format(it).replace(',', ' ') } ?: "—") to "Пробіг",
+            (s?.v12?.let { "%.1f В".format(it) } ?: "—") to "Бортова 12V",
+            (s?.soh?.let { "$it%" } ?: "—") to "Здоров'я АКБ",
+        )
+        val cw = r.width() / cells.size
+        cells.forEachIndexed { i, (value, label) ->
+            val cx = r.left + cw * i + cw / 2
+            title.color = Ui.TEXT; title.textAlign = Paint.Align.CENTER; title.textSize = dp(19f)
+            c.drawText(value, cx, r.top + r.height() * 0.46f, title)
+            sub.textAlign = Paint.Align.CENTER; sub.textSize = dp(14f)
+            c.drawText(label, cx, r.top + r.height() * 0.76f, sub)
+            if (i > 0) {
+                val x = r.left + cw * i
+                c.drawLine(x, r.top + r.height() * 0.22f, x, r.bottom - r.height() * 0.22f, tileBorder)
+            }
+        }
     }
 
-    private fun windowsText(w: List<Int?>): String {
-        if (w.all { it == null }) return "—"
-        val short = listOf("вод", "пас", "ЗЛ", "ЗП")
-        val open = w.mapIndexedNotNull { i, p -> if (p != null && p > 0) "${short[i]} $p%" else null }
-        return if (open.isEmpty()) "закриті" else open.joinToString(", ")
+    private fun drawHero(c: Canvas, left: Float, right: Float, h: Float, s: CarSnapshot?) {
+        val cx = (left + right) / 2
+        // Top pill, like the factory «Interior» chip.
+        val temps = listOfNotNull(s?.insideC?.let { "Салон $it°" }, s?.outsideC?.let { "Надворі $it°" })
+            .joinToString("   ·   ").ifEmpty { "Car Remote" }
+        sub.textSize = dp(17f); sub.textAlign = Paint.Align.CENTER
+        val pillW = sub.measureText(temps) + dp(44f)
+        val pill = RectF(cx - pillW / 2, dp(26f), cx + pillW / 2, dp(70f))
+        tileFill.color = 0x664A5A72
+        c.drawRoundRect(pill, dp(22f), dp(22f), tileFill)
+        title.color = Ui.TEXT; title.textAlign = Paint.Align.CENTER; title.textSize = dp(17f)
+        c.drawText(temps, cx, pill.centerY() + dp(6f), title)
+
+        val soc = s?.soc
+        big.textAlign = Paint.Align.CENTER; big.textSize = minOf(dp(150f), (right - left) * 0.28f)
+        val socY = h * 0.50f
+        c.drawText(soc?.let { "%.0f".format(it) } ?: "—", cx - dp(20f), socY, big)
+        title.textSize = dp(34f); title.textAlign = Paint.Align.LEFT
+        c.drawText("%", cx - dp(20f) + big.measureText(soc?.let { "%.0f".format(it) } ?: "—") / 2 + dp(6f), socY, title)
+        sub.textSize = dp(18f); sub.textAlign = Paint.Align.CENTER
+        c.drawText("Заряд батареї", cx, socY + dp(38f), sub)
+
+        // Battery bar.
+        val bw = (right - left) * 0.62f
+        val by = socY + dp(66f)
+        val track = RectF(cx - bw / 2, by, cx + bw / 2, by + dp(12f))
+        c.drawRoundRect(track, dp(6f), dp(6f), barBg)
+        val frac = ((soc ?: 0f) / 100f).coerceIn(0f, 1f)
+        bar.color = when { soc == null -> 0x00000000; soc >= 50 -> Ui.GREEN; soc >= 20 -> Ui.ORANGE; else -> Ui.RED }
+        if (frac > 0f) c.drawRoundRect(RectF(track.left, track.top, track.left + bw * frac, track.bottom), dp(6f), dp(6f), bar)
+
+        val details = listOfNotNull(
+            "Передача ${s?.gearName ?: "—"}",
+            s?.battTempC?.let { "Батарея $it°C" },
+            s?.powerKw?.let { "%.1f кВт".format(it) },
+        ).joinToString("    ")
+        sub.textSize = dp(16f)
+        c.drawText(details, cx, by + dp(48f), sub)
+        val tires = s?.tiresBar?.takeIf { l -> l.any { it != null } }
+            ?.joinToString("  ") { v -> v?.let { "%.1f".format(it) } ?: "—" }
+        if (tires != null) c.drawText("Шини, бар:  $tires", cx, by + dp(78f), sub)
+    }
+
+    /** Thin line icons in the DiLink style, drawn in a box of [s] centred on (cx, cy). */
+    private fun drawIcon(c: Canvas, t: Tile, cx: Float, cy: Float, s: Float) {
+        val h = s / 2
+        val p = Path()
+        when (t) {
+            Tile.CLIMATE -> { // fan: hub + three blades
+                c.drawCircle(cx, cy, s * 0.08f, icon)
+                for (k in 0 until 3) {
+                    val a = Math.toRadians(k * 120.0 - 90)
+                    val ex = cx + (Math.cos(a) * h).toFloat(); val ey = cy + (Math.sin(a) * h).toFloat()
+                    val a2 = a + Math.toRadians(55.0)
+                    p.moveTo(cx, cy)
+                    p.quadTo(cx + (Math.cos(a2) * h * 0.9).toFloat(), cy + (Math.sin(a2) * h * 0.9).toFloat(), ex, ey)
+                }
+                c.drawPath(p, icon)
+            }
+            Tile.LOCKS -> {
+                c.drawRoundRect(RectF(cx - h * 0.8f, cy - h * 0.1f, cx + h * 0.8f, cy + h), s * 0.1f, s * 0.1f, icon)
+                c.drawArc(RectF(cx - h * 0.5f, cy - h, cx + h * 0.5f, cy + h * 0.1f), 180f, 180f, false, icon)
+                c.drawLine(cx - h * 0.5f, cy - h * 0.45f, cx - h * 0.5f, cy - h * 0.1f, icon)
+                c.drawLine(cx + h * 0.5f, cy - h * 0.45f, cx + h * 0.5f, cy - h * 0.1f, icon)
+                c.drawLine(cx, cy + h * 0.3f, cx, cy + h * 0.6f, icon)
+            }
+            Tile.TRUNK -> { // car tail with lifted hatch
+                p.moveTo(cx - h, cy + h * 0.5f); p.lineTo(cx - h, cy - h * 0.1f)
+                p.lineTo(cx - h * 0.3f, cy - h * 0.6f); p.lineTo(cx + h * 0.4f, cy - h * 0.6f)
+                p.lineTo(cx + h, cy - h * 0.1f); p.lineTo(cx + h, cy + h * 0.5f); p.close()
+                c.drawPath(p, icon)
+                c.drawLine(cx - h * 0.6f, cy + h * 0.15f, cx + h * 0.6f, cy + h * 0.15f, icon)
+            }
+            Tile.WINDOWS -> {
+                p.moveTo(cx - h, cy + h * 0.6f); p.lineTo(cx - h, cy - h * 0.1f)
+                p.lineTo(cx - h * 0.2f, cy - h * 0.7f); p.lineTo(cx + h, cy - h * 0.7f)
+                p.lineTo(cx + h, cy + h * 0.6f); p.close()
+                c.drawPath(p, icon)
+                c.drawLine(cx - h * 0.2f, cy + h * 0.05f, cx + h * 0.3f, cy - h * 0.25f, icon)
+            }
+            Tile.SUNROOF -> {
+                c.drawRoundRect(RectF(cx - h, cy - h * 0.7f, cx + h, cy + h * 0.7f), s * 0.12f, s * 0.12f, icon)
+                c.drawRoundRect(RectF(cx - h * 0.55f, cy - h * 0.35f, cx + h * 0.55f, cy + h * 0.35f), s * 0.06f, s * 0.06f, icon)
+            }
+            Tile.CLEAN_AIR -> { // three breeze lines
+                for (k in -1..1) {
+                    val y = cy + k * h * 0.55f
+                    p.moveTo(cx - h, y); p.quadTo(cx - h * 0.3f, y - h * 0.3f, cx + h * 0.2f, y)
+                    p.quadTo(cx + h * 0.6f, y + h * 0.25f, cx + h, y - h * 0.1f)
+                }
+                c.drawPath(p, icon)
+            }
+            Tile.CHARGING -> { // bolt
+                p.moveTo(cx + h * 0.15f, cy - h); p.lineTo(cx - h * 0.55f, cy + h * 0.1f)
+                p.lineTo(cx, cy + h * 0.1f); p.lineTo(cx - h * 0.15f, cy + h)
+                p.lineTo(cx + h * 0.55f, cy - h * 0.1f); p.lineTo(cx, cy - h * 0.1f); p.close()
+                c.drawPath(p, icon)
+            }
+            Tile.AIR_ALERT -> { // shield
+                p.moveTo(cx, cy - h); p.lineTo(cx + h * 0.8f, cy - h * 0.6f)
+                p.quadTo(cx + h * 0.8f, cy + h * 0.5f, cx, cy + h)
+                p.quadTo(cx - h * 0.8f, cy + h * 0.5f, cx - h * 0.8f, cy - h * 0.6f); p.close()
+                c.drawPath(p, icon)
+                c.drawLine(cx, cy - h * 0.35f, cx, cy + h * 0.15f, icon)
+                c.drawPoint(cx, cy + h * 0.45f, icon)
+            }
+            Tile.SETTINGS -> { // gear: ring + teeth
+                c.drawCircle(cx, cy, h * 0.3f, icon)
+                c.drawCircle(cx, cy, h * 0.65f, icon)
+                for (k in 0 until 8) {
+                    val a = Math.toRadians(k * 45.0)
+                    c.drawLine(cx + (Math.cos(a) * h * 0.65).toFloat(), cy + (Math.sin(a) * h * 0.65).toFloat(),
+                        cx + (Math.cos(a) * h * 0.95).toFloat(), cy + (Math.sin(a) * h * 0.95).toFloat(), icon)
+                }
+            }
+        }
+    }
+
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        val hit = tileRects.entries.firstOrNull { it.value.contains(e.x, e.y) }?.key
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> { pressed = hit; invalidate(); return hit != null }
+            MotionEvent.ACTION_UP -> {
+                val p = pressed; pressed = null; invalidate()
+                if (p != null && p == hit) { performClick(); onTile?.invoke(p) }
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> { pressed = null; invalidate() }
+        }
+        return super.onTouchEvent(e)
+    }
+
+    override fun performClick(): Boolean = super.performClick()
+
+    private fun ellipsize(s: String, p: Paint, max: Float): String {
+        if (p.measureText(s) <= max) return s
+        var t = s
+        while (t.length > 1 && p.measureText("$t…") > max) t = t.dropLast(1)
+        return "$t…"
     }
 
     private fun stroke(c: Int, width: Float) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
