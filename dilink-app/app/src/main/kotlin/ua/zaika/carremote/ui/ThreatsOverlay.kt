@@ -99,8 +99,14 @@ class ThreatsOverlay : Overlay() {
                 if (!px.isNaN()) { trail.alpha = 210; canvas.drawLine(px, py, hx, hy, trail) }
             }
 
+            // NEPTUN positions arrive late; show how old each one is and fade the stale ones.
+            val age = t.ageMin(now)
+            val stale = age != null && age >= STALE_MIN
             dot.color = color
+            dot.alpha = if (stale) 110 else 255
             drawDrone(canvas, hx, hy, t.heading, 8f * d)
+            dot.alpha = 255
+            if (age != null) canvas.drawText(if (age < 1) "щойно" else "$age хв", hx + 11f * d, hy + 16f * d, label)
         }
 
         car?.let { (lat, lon) ->
@@ -155,8 +161,10 @@ class ThreatsOverlay : Overlay() {
     }
 
     private companion object {
+        const val STALE_MIN = 15
         const val MAX_DRIFT_MS = 180_000L   // cap head extrapolation at 3 min between updates
         const val MAX_TRAIL = 40            // trail points kept per track
         const val TRAIL_AGE_MS = 900_000L   // drop trail points older than 15 min
     }
+
 }

@@ -16,7 +16,11 @@ data class AirThreat(
     val sourceCount: Int,
     val uncertaintyKm: Double,
     val explanation: String,   // short human text, already in Ukrainian from NEPTUN
+    val updatedMs: Long? = null, // when NEPTUN last confirmed this position
 ) {
+    /** Minutes since NEPTUN last confirmed the position, or null if it gave no time. */
+    fun ageMin(now: Long = System.currentTimeMillis()): Int? = updatedMs?.let { ((now - it) / 60_000).toInt().coerceAtLeast(0) }
+
     /** Short label with the gist of the threat type, for the on-screen banner. */
     val label: String get() = when (type) {
         "uav" -> "БпЛА"
@@ -29,6 +33,10 @@ data class AirThreat(
     }
 
     companion object {
+        fun parseIso(v: String?): Long? = v?.takeIf { it.isNotBlank() }?.let {
+            runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull()
+        }
+
         fun parse(o: JSONObject): AirThreat? {
             val lat = o.optDouble("lat", Double.NaN)
             val lon = o.optDouble("lon", Double.NaN)
@@ -46,6 +54,7 @@ data class AirThreat(
                 sourceCount = o.optInt("sourceCount", 0),
                 uncertaintyKm = o.optDouble("uncertaintyKm", 0.0),
                 explanation = o.optString("explanationShort"),
+                updatedMs = parseIso(o.optString("updatedAt").ifBlank { o.optString("confirmedAt") }),
             )
         }
     }

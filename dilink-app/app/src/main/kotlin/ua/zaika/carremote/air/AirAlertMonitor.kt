@@ -47,6 +47,11 @@ data class AirState(
         }
         lines.add(threatLine(radiusKm))
         lines.add("Загроз у країні: $totalThreats")
+        // NEPTUN is an aggregator: say how fresh its newest position is.
+        all.mapNotNull { it.updatedMs }.maxOrNull()?.let { last ->
+            val m = ((System.currentTimeMillis() - last) / 60_000).coerceAtLeast(0)
+            lines.add("Дані NEPTUN: оновлено ${if (m < 1) "щойно" else "$m хв тому"} · неофіційні")
+        }
         return lines.joinToString("\n")
     }
 
