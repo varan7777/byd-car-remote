@@ -109,7 +109,7 @@ class ThreatsOverlay : Overlay() {
             drawn[t.id] = hx to hy
             dot.color = color
             dot.alpha = if (stale) 110 else 255
-            drawDrone(canvas, hx, hy, t.heading, 8f * d)
+            drawThreat(canvas, t.type, hx, hy, t.heading, 9f * d)
             dot.alpha = 255
             if (age != null) canvas.drawText(if (age < 1) "щойно" else "$age хв", hx + 11f * d, hy + 16f * d, label)
         }
@@ -125,19 +125,59 @@ class ThreatsOverlay : Overlay() {
 
     /** A small delta-wing drone silhouette (Shahed-like): nose points along the heading. With no
      *  heading the nose points north. [dot] already holds the per-type colour. */
-    private fun drawDrone(canvas: Canvas, cx: Float, cy: Float, heading: Int?, s: Float) {
+    /**
+     * A silhouette per threat type, nose along the heading (north when unknown): Shahed delta
+     * wing, recon plane, FPV quadcopter, cruise missile, ballistic rocket, guided bomb (KAB),
+     * MiG-31K jet, or a question-mark diamond. [dot] already holds the per-type colour.
+     */
+    private fun drawThreat(canvas: Canvas, type: String, cx: Float, cy: Float, heading: Int?, s: Float) {
         canvas.save()
         canvas.translate(cx, cy)
         canvas.rotate((heading ?: 0).toFloat()) // 0° = north = nose up
-        dronePath.reset()
-        dronePath.moveTo(0f, -s)               // nose
-        dronePath.lineTo(s * 0.9f, s * 0.75f)  // right wing tip
-        dronePath.lineTo(0f, s * 0.3f)         // tail notch
-        dronePath.lineTo(-s * 0.9f, s * 0.75f) // left wing tip
-        dronePath.close()
-        canvas.drawPath(dronePath, dot)
-        canvas.drawPath(dronePath, outline)
+        val p = dronePath
+        p.reset()
+        when (type) {
+            "uav" -> { // Shahed: delta wing
+                p.moveTo(0f, -s); p.lineTo(s * 0.9f, s * 0.75f); p.lineTo(0f, s * 0.3f); p.lineTo(-s * 0.9f, s * 0.75f); p.close()
+            }
+            "recon" -> { // straight-wing recon plane
+                p.addRect(-s * 0.12f, -s, s * 0.12f, s, Path.Direction.CW)
+                p.addRect(-s, -s * 0.35f, s, -s * 0.05f, Path.Direction.CW)
+                p.addRect(-s * 0.45f, s * 0.7f, s * 0.45f, s * 0.9f, Path.Direction.CW)
+            }
+            "fpv" -> { // quadcopter: X frame + four rotors
+                p.addRect(-s * 0.25f, -s * 0.25f, s * 0.25f, s * 0.25f, Path.Direction.CW)
+                for ((x, y) in listOf(-1f to -1f, 1f to -1f, -1f to 1f, 1f to 1f)) p.addCircle(x * s * 0.65f, y * s * 0.65f, s * 0.33f, Path.Direction.CW)
+            }
+            "missile" -> { // cruise missile: long body, small wings, tail fins
+                p.addRoundRect(-s * 0.16f, -s * 1.2f, s * 0.16f, s * 1.1f, s * 0.16f, s * 0.16f, Path.Direction.CW)
+                p.addRect(-s * 0.7f, -s * 0.05f, s * 0.7f, s * 0.12f, Path.Direction.CW)
+                p.moveTo(0f, s * 0.75f); p.lineTo(s * 0.45f, s * 1.1f); p.lineTo(-s * 0.45f, s * 1.1f); p.close()
+            }
+            "ballistic" -> { // rocket: pointed nose, thick body, big fins
+                p.moveTo(0f, -s * 1.3f); p.lineTo(s * 0.3f, -s * 0.7f); p.lineTo(s * 0.3f, s * 0.7f)
+                p.lineTo(s * 0.7f, s * 1.15f); p.lineTo(-s * 0.7f, s * 1.15f); p.lineTo(-s * 0.3f, s * 0.7f)
+                p.lineTo(-s * 0.3f, -s * 0.7f); p.close()
+            }
+            "kab" -> { // guided bomb: teardrop with tail fins
+                p.addOval(-s * 0.35f, -s, s * 0.35f, s * 0.6f, Path.Direction.CW)
+                p.moveTo(0f, s * 0.4f); p.lineTo(s * 0.55f, s * 1.05f); p.lineTo(-s * 0.55f, s * 1.05f); p.close()
+            }
+            "mig31k" -> { // jet: swept wings + tailplane
+                p.moveTo(0f, -s * 1.2f); p.lineTo(s * 0.15f, -s * 0.4f); p.lineTo(s * 1.0f, s * 0.25f)
+                p.lineTo(s * 1.0f, s * 0.45f); p.lineTo(s * 0.15f, s * 0.2f); p.lineTo(s * 0.15f, s * 0.75f)
+                p.lineTo(s * 0.5f, s * 1.1f); p.lineTo(-s * 0.5f, s * 1.1f); p.lineTo(-s * 0.15f, s * 0.75f)
+                p.lineTo(-s * 0.15f, s * 0.2f); p.lineTo(-s * 1.0f, s * 0.45f); p.lineTo(-s * 1.0f, s * 0.25f)
+                p.lineTo(-s * 0.15f, -s * 0.4f); p.close()
+            }
+            else -> { // unknown: diamond
+                p.moveTo(0f, -s); p.lineTo(s * 0.8f, 0f); p.lineTo(0f, s); p.lineTo(-s * 0.8f, 0f); p.close()
+            }
+        }
+        canvas.drawPath(p, dot)
+        canvas.drawPath(p, outline)
         canvas.restore()
+        if (type !in KNOWN) canvas.drawText("?", cx - s * 0.25f, cy + s * 0.35f, label)
     }
 
     /** Dead-reckoned head position: advance the anchor along the heading, capped so it can't run away. */
@@ -162,6 +202,7 @@ class ThreatsOverlay : Overlay() {
         "missile", "ballistic", "mig31k" -> 0xFFFF4D4D.toInt()
         "kab" -> 0xFFFFC14D.toInt()
         "uav", "recon" -> 0xFFFF8A3D.toInt()
+        "fpv" -> 0xFFE879F9.toInt()
         else -> 0xFFD0D7E2.toInt()
     }
 
@@ -175,6 +216,7 @@ class ThreatsOverlay : Overlay() {
 
     private companion object {
         const val STALE_MIN = 15
+        val KNOWN = setOf("uav", "recon", "fpv", "missile", "ballistic", "kab", "mig31k")
         const val MAX_DRIFT_MS = 180_000L   // cap head extrapolation at 3 min between updates
         const val MAX_TRAIL = 40            // trail points kept per track
         const val TRAIL_AGE_MS = 900_000L   // drop trail points older than 15 min

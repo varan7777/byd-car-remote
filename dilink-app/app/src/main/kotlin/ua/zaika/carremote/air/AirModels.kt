@@ -29,6 +29,7 @@ data class AirThreat(
     val label: String get() = when (type) {
         "uav" -> "БпЛА"
         "recon" -> "Розвід. БпЛА"
+        "fpv" -> "FPV-дрон"
         "missile" -> "Ракета"
         "ballistic" -> "Балістика"
         "kab" -> "КАБ"
