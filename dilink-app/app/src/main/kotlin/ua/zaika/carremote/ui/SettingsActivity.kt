@@ -48,7 +48,6 @@ class SettingsActivity : Activity() {
                 header("Система"), card(
                     switchRow("Доступність на стоянці", "keep_awake", false),
                     switchRow("Нагадування: відчинене авто / перегрів", CarRemoteService.KEY_AUTOMATIONS, true),
-                    switchRow("Зачинене й порожнє авто: вимикати екран і ходові", ua.zaika.carremote.car.ParkedQuiet.KEY_ENABLED, true),
                     switchRow("Плаваючий віджет (поверх усього)", CarRemoteService.KEY_WIDGET, false) {
                         if (it && !Settings.canDrawOverlays(this)) runCatching {
                             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))

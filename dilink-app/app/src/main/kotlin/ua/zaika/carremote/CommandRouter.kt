@@ -60,6 +60,9 @@ class CommandRouter(
             "temp_down" -> changeTemp(-1)
 
             "findcar" -> findCar()
+            "lock" -> lockAll()
+            "quiet", "/quiet" -> requestQuiet(on = true)
+            "quiet_off", "/quiet_off" -> requestQuiet(on = false)
             "windows_open" -> windows(open = true)
             "windows_close" -> windows(open = false)
 
@@ -137,6 +140,43 @@ class CommandRouter(
         return Reply("${if (accepted) "➡️" else "⚠️"} Вікна: команда ${if (open) "відкрити" else "закрити"} ${if (accepted) "надіслана" else "частково відхилена"}. Стан: $now")
     }
 
+    /**
+     * «Замкнути»: first close every open window and the sunroof (moving parts — only in Park),
+     * then lock. A car locked with a window down is not really locked.
+     */
+    private fun lockAll(): Reply {
+        if (!car.isReachable()) return Reply(noAdb())
+        val notes = mutableListOf<String>()
+        val windowsOpen = Fids.WINDOWS.any { (car.getInt(Fids.DEV_BODYWORK, it) ?: 0) > 0 }
+        val roofOpen = (car.getInt(Fids.DEV_BODYWORK, Fids.SUNROOF) ?: 0) > 0
+        if (windowsOpen || roofOpen) {
+            if (!isParked()) notes += "⚠️ Вікна/люк відчинені, але закрити їх можна лише на P"
+            else {
+                if (windowsOpen) {
+                    Fids.WINDOW_SET.forEachIndexed { i, fid -> if (i > 0) Thread.sleep(250); car.write(Fids.DEV_BODYWORK, fid, 0) }
+                    notes += "🪟 Вікна закриваються"
+                }
+                if (roofOpen) {
+                    car.write(Controls.SUNROOF_CLOSE.dev, Controls.SUNROOF_CLOSE.fid, Controls.SUNROOF_CLOSE.value)
+                    notes += "☀️ Люк закривається"
+                }
+                Thread.sleep(LOCK_AFTER_CLOSE_MS) // let the glass travel before the doors lock
+            }
+        }
+        val lock = run(Controls.LOCK)
+        return Reply((notes + lock.text).joinToString("\n"))
+    }
+
+    /**
+     * «Тихий режим» is on demand only: the bot asks, the service switches the screen and DRL off
+     * (it owns the head unit's ADB). It ends by itself when the car is unlocked or someone gets in.
+     */
+    private fun requestQuiet(on: Boolean): Reply {
+        prefs.edit().putString(ua.zaika.carremote.car.ParkedQuiet.KEY_REQUEST, if (on) "on" else "off").apply()
+        return Reply(if (on) "🌙 Вимикаю екран і ходові вогні… Результат прийде окремим повідомленням."
+            else "☀️ Повертаю екран…")
+    }
+
     /** "Find car": flash the hazards for a few seconds. */
     private fun findCar(): Reply {
         if (!car.isReachable()) return Reply(noAdb())
@@ -188,6 +228,7 @@ class CommandRouter(
 
     private companion object {
         const val SETTLE_MS = 1500L
+        const val LOCK_AFTER_CLOSE_MS = 6000L
         const val KEY_LOW_SOC = "low_soc"
         const val DEFAULT_LOW_SOC = 20
 
@@ -205,6 +246,7 @@ class CommandRouter(
             listOf("⏸ Зупинити зарядку" to "charge_stop", "⚡ Почати зарядку" to "charge_start"),
             listOf("📍 Знайти авто" to "findcar"),
             listOf("🅿️ Стан на стоянці" to "parked", "🪫 Поріг заряду" to "setlow_menu"),
+            listOf("🌙 Тихий режим" to "quiet", "☀️ Екран увімкнути" to "quiet_off"),
         )
         val MAIN_LABELS: List<List<String>> = BUTTONS.map { row -> row.map { it.first } }
         val BUTTON_ID: Map<String, String> = BUTTONS.flatten().associate { it.first to it.second }

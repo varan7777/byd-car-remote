@@ -83,6 +83,9 @@ class AirAlertActivity : Activity() {
             controller.setCenter(GeoPoint(49.0, 31.5)) // Ukraine, until the first GPS fix
             overlays.add(CopyrightOverlay(this@AirAlertActivity)) // "© OpenStreetMap contributors"
             overlays.add(threatsOverlay)
+            // Follow the head unit's day/night theme: at night the OSM tiles are inverted to a
+            // dark navy map (labels stay readable), like the factory navigation's night mode.
+            if (!Ui.isLight(this@AirAlertActivity)) overlayManager.tilesOverlay.setColorFilter(NIGHT_TILES)
         }
 
         banner = TextView(this).apply {
@@ -99,24 +102,24 @@ class AirAlertActivity : Activity() {
         // Factory DiLink layout: a navy side panel on the left, the content (map) on the right.
         val side = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Ui.BG)
+            setBackgroundColor(Ui.bg(this@AirAlertActivity))
             setPadding(dp(22), dp(20), dp(22), dp(20))
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 addView(TextView(context).apply {
-                    text = "‹"; setTextColor(Ui.TEXT); textSize = 34f; typeface = sf
+                    text = "‹"; setTextColor(Ui.textc(context)); textSize = 34f; typeface = sf
                     gravity = Gravity.CENTER
                     background = tileBg(radius = 22)
                     setOnClickListener { finish() }
                     contentDescription = "Назад"
                 }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { setMargins(0, 0, dp(14), 0) })
                 addView(TextView(context).apply {
-                    text = "Повітряна тривога"; setTextColor(Ui.TEXT); textSize = 24f; typeface = sfSemibold
+                    text = "Повітряна тривога"; setTextColor(Ui.textc(context)); textSize = 24f; typeface = sfSemibold
                 })
             })
             addView(TextView(context).apply {
-                text = "NEPTUN · карта загроз навколо авто"; setTextColor(Ui.TEXT2); textSize = 14f; typeface = sf
+                text = "NEPTUN · карта загроз навколо авто"; setTextColor(Ui.text2c(context)); textSize = 14f; typeface = sf
                 setPadding(0, dp(4), 0, dp(16))
             })
             addView(banner, LinearLayout.LayoutParams(MATCH, WRAP))
@@ -127,7 +130,7 @@ class AirAlertActivity : Activity() {
 
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(Ui.BG)
+            setBackgroundColor(Ui.bg(this@AirAlertActivity))
             addView(side, LinearLayout.LayoutParams(dp(380), MATCH))
             addView(FrameLayout(context).apply {
                 setPadding(0, dp(12), dp(12), dp(12))
@@ -213,7 +216,7 @@ class AirAlertActivity : Activity() {
 
     private fun buildSettingsPanel(): LinearLayout {
         val current = prefs.getInt(CarRemoteService.KEY_RADIUS, CarRemoteService.DEFAULT_RADIUS)
-        val txt = Ui.TEXT
+        val txt = Ui.textc(this)
         radiusLabel = TextView(this).apply {
             setTextColor(txt); textSize = 15f; typeface = sfSemibold
             text = "Радіус тривоги: $current км"
@@ -242,10 +245,10 @@ class AirAlertActivity : Activity() {
                 trackTintList = android.content.res.ColorStateList.valueOf(if (on) Ui.BLUE else off)
             }
         }
-        val test = tintedPill("Перевірити сигнал", Ui.TEXT) { CarRemoteService.testAlarm(this@AirAlertActivity) }
+        val test = tintedPill("Перевірити сигнал", Ui.textc(this)) { CarRemoteService.testAlarm(this@AirAlertActivity) }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = tileBg()
+            background = if (Ui.isLight(this@AirAlertActivity)) rounded(Ui.card(this@AirAlertActivity), 16) else tileBg()
             setPadding(dp(16), dp(14), dp(16), dp(14))
             addView(radiusLabel)
             addView(slider)
@@ -267,5 +270,13 @@ class AirAlertActivity : Activity() {
         const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
         const val RADIUS_MIN = 10
         const val RADIUS_MAX = 100
+
+        /** Invert OSM's light tiles into a dim navy night map (tinted, not pure negative). */
+        val NIGHT_TILES = android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix(floatArrayOf(
+            -0.75f, 0f, 0f, 0f, 205f,
+            0f, -0.75f, 0f, 0f, 215f,
+            0f, 0f, -0.70f, 0f, 235f,
+            0f, 0f, 0f, 1f, 0f,
+        )))
     }
 }

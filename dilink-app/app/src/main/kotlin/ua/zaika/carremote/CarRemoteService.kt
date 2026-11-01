@@ -266,7 +266,7 @@ class CarRemoteService : Service() {
                             if (prefs.getBoolean(KEY_AUTOMATIONS, true)) {
                                 for (m in autos.poll(snap)) runCatching { bot.send(owner, m) }
                             }
-                            quiet.poll(prefs.getBoolean(ua.zaika.carremote.car.ParkedQuiet.KEY_ENABLED, true), snap)
+                            quiet.poll(snap)
                                 ?.let { m -> runCatching { bot.send(owner, m) } }
                             val loc = readLocation()
                             val map = loc?.let { "\n📍 https://maps.google.com/?q=${it.first},${it.second}" } ?: ""
@@ -276,7 +276,11 @@ class CarRemoteService : Service() {
                         }
                         if (ticks++ % 5 == 0) runCatching { watchdog?.ensureRunning() }
                     }
-                    delay(30_000)
+                    // Wake early when «Тихий режим» was asked for from the bot.
+                    var waited = 0
+                    while (waited < 30_000 && !prefs.contains(ua.zaika.carremote.car.ParkedQuiet.KEY_REQUEST)) {
+                        delay(2_000); waited += 2_000
+                    }
                 }
             }
         }
