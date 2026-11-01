@@ -329,9 +329,10 @@ class AirAlertActivity : Activity() {
 
         /** Invert OSM's light tiles into a dim navy night map (tinted, not pure negative). */
         val NIGHT_TILES = android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix(floatArrayOf(
-            -0.75f, 0f, 0f, 0f, 205f,
-            0f, -0.75f, 0f, 0f, 215f,
-            0f, 0f, -0.70f, 0f, 235f,
+            // Inverted luminance mapped onto a grey-navy ramp: white land → dark navy, black text → light grey.
+            -0.135f, -0.265f, -0.05f, 0f, 135f,
+            -0.135f, -0.265f, -0.05f, 0f, 146f,
+            -0.135f, -0.265f, -0.05f, 0f, 168f,
             0f, 0f, 0f, 1f, 0f,
         )))
     }
