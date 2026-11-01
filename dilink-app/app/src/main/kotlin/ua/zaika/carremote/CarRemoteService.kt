@@ -375,11 +375,14 @@ class CarRemoteService : Service() {
     private fun readLocation(): Pair<Double, Double>? = Geo.lastKnown(applicationContext)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_CAMERA_PREVIEW) {
+        // The service is exported (the shell watchdog restarts it), so other apps can send it
+        // intents. Act on these only when they carry this process's in-memory key.
+        val trusted = intent?.getStringExtra(EXTRA_KEY) == LOCAL_KEY
+        if (intent?.action == ACTION_CAMERA_PREVIEW && trusted) {
             cameraPreviewSide = if (intent.getStringExtra("side") == "right") CameraSide.RIGHT else CameraSide.LEFT
             cameraPreviewUntil = SystemClock.elapsedRealtime() + 10_000
         }
-        if (intent?.action == ACTION_TEST) {
+        if (intent?.action == ACTION_TEST && trusted) {
             // Re-open the voice each test: picks up an engine or Ukrainian voice installed since start.
             airSpeaker?.shutdown(); airSpeaker = ua.zaika.carremote.air.Speaker(this)
             airBeep()
@@ -448,10 +451,13 @@ class CarRemoteService : Service() {
         const val ACTION_CAMERA_PREVIEW = "ua.zaika.carremote.CAMERA_PREVIEW"
         const val DEFAULT_RADIUS = 40
         const val ACTION_TEST = "ua.zaika.carremote.action.AIR_TEST"
+        private const val EXTRA_KEY = "key"
+        /** Random per process: only code inside this app can attach it to an intent. */
+        private val LOCAL_KEY = java.util.UUID.randomUUID().toString()
 
         /** Fire a one-off test beep + spoken warning through the running service. */
         fun testAlarm(context: Context) {
-            context.startService(Intent(context, CarRemoteService::class.java).setAction(ACTION_TEST))
+            context.startService(Intent(context, CarRemoteService::class.java).setAction(ACTION_TEST).putExtra(EXTRA_KEY, LOCAL_KEY))
         }
 
         // Read by the status screen.
