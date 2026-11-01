@@ -252,6 +252,7 @@ class CarRemoteService : Service() {
         if (owner != 0L || hubMode) {
             val notifier = Notifier(car) { router.lowSoc() }
             val quiet = ua.zaika.carremote.car.ParkedQuiet(car, adb, prefs)
+            val alertWatch = ua.zaika.carremote.air.AlertNotifier()
             val trip = TripTracker()
             val autos = Automations()
             scope.launch {
@@ -268,6 +269,9 @@ class CarRemoteService : Service() {
                             }
                             quiet.poll(snap)
                                 ?.let { m -> runCatching { bot.send(owner, m) } }
+                            // Air alert to the owner's Telegram — only when the car stands in P with
+                            // nobody inside (in the car the screen and voice already warn).
+                            alertWatch.poll(airState, car)?.let { m -> runCatching { bot.send(owner, m) } }
                             val loc = readLocation()
                             val map = loc?.let { "\n📍 https://maps.google.com/?q=${it.first},${it.second}" } ?: ""
                             val body = ShutdownReport.body(snap) + (trip.line(snap)?.let { "\n$it" } ?: "") + map

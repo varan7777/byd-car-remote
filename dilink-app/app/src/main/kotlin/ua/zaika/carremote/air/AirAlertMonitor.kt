@@ -41,9 +41,11 @@ data class AirState(
     fun bannerText(radiusKm: Double): String {
         if (error != null) return "🛰️ $error"
         val lines = ArrayList<String>()
-        oblastAlert?.let {
-            val why = it.reasons.firstOrNull()?.let { r -> " — $r" } ?: ""
-            lines.add("🔴 Повітряна тривога: ${it.name}$why")
+        if (oblastAlert != null || regionLevel != null) {
+            val why = oblastAlert?.reasons?.firstOrNull()?.let { r -> " — $r" } ?: ""
+            val where = oblastAlert?.name?.let { ": $it" } ?: ""
+            lines.add("${AlertNotifier.levelEmoji(regionLevel, oblastAlert != null)} " +
+                "${AlertNotifier.levelName(regionLevel, oblastAlert != null)}$where$why")
         }
         lines.add(threatLine(radiusKm))
         lines.add("Загроз у країні: $totalThreats")

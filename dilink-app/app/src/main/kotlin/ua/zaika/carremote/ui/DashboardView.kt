@@ -110,6 +110,7 @@ class DashboardView(context: Context) : View(context) {
             a == null -> null
             a.regionLevel == "red" || a.within.isNotEmpty() || (a.oblastAlert != null && a.regionLevel != "yellow") -> Ui.RED
             a.regionLevel == "yellow" -> Ui.YELLOW
+            a.regionLevel != null -> Ui.PURPLE // any other official level (e.g. nuclear / chemical)
             else -> null
         }
         val km = a?.nearestKm?.let { " · ${it.roundToInt()} км" } ?: ""
@@ -118,6 +119,7 @@ class DashboardView(context: Context) : View(context) {
             a.error != null && a.nearest == null -> "Немає даних"
             a.regionLevel == "red" || a.oblastAlert != null -> "Тривога$km"
             a.regionLevel == "yellow" -> "Жовта$km"
+            a.regionLevel != null -> "Тривога: ${a.regionLevel}$km"
             a.within.isNotEmpty() -> "Поруч$km"
             a.nearest != null -> "Далеко$km"
             else -> "Спокійно"

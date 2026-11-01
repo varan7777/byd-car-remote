@@ -178,7 +178,9 @@ class AirAlertActivity : Activity() {
         banner.text = s.bannerText(radius)
         // Red: air-raid in our oblast or a threat within radius. Amber: threats but far. Green: clear.
         val c = when {
-            s.oblastAlert != null || s.within.isNotEmpty() -> 0xFF8E2A24.toInt()
+            s.regionLevel == "red" || s.within.isNotEmpty() || (s.oblastAlert != null && s.regionLevel != "yellow") -> 0xFF8E2A24.toInt()
+            s.regionLevel == "yellow" -> 0xFF8A7410.toInt()
+            s.regionLevel != null -> 0xFF5B2E8C.toInt() // other official level (nuclear / chemical)
             s.nearest != null -> 0xFF7A5410.toInt()
             s.error != null -> 0xFF243042.toInt()
             else -> 0xFF1E4A36.toInt()
