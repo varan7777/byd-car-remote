@@ -17,6 +17,10 @@ data class AirThreat(
     val uncertaintyKm: Double,
     val explanation: String,   // short human text, already in Ukrainian from NEPTUN
     val updatedMs: Long? = null, // when NEPTUN last confirmed this position
+    val district: String = "",
+    val status: String = "",          // active | ...
+    val positionQuality: String = "", // confirmed | estimated | ...
+    val confirmedMs: Long? = null,
 ) {
     /** Minutes since NEPTUN last confirmed the position, or null if it gave no time. */
     fun ageMin(now: Long = System.currentTimeMillis()): Int? = updatedMs?.let { ((now - it) / 60_000).toInt().coerceAtLeast(0) }
@@ -55,6 +59,10 @@ data class AirThreat(
                 uncertaintyKm = o.optDouble("uncertaintyKm", 0.0),
                 explanation = o.optString("explanationShort"),
                 updatedMs = parseIso(o.optString("updatedAt").ifBlank { o.optString("confirmedAt") }),
+                district = o.optString("district", ""),
+                status = o.optString("status", ""),
+                positionQuality = o.optString("positionQuality").ifBlank { o.optString("lifecycle") },
+                confirmedMs = parseIso(o.optString("confirmedAt")),
             )
         }
     }

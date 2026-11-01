@@ -50,6 +50,10 @@ class ThreatsOverlay : Overlay() {
         }
     var car: Pair<Double, Double>? = null
 
+    /** Called with the threat whose marker was tapped. */
+    var onThreatTap: ((AirThreat) -> Unit)? = null
+    private val drawn = HashMap<String, Pair<Float, Float>>() // last drawn marker position per id
+
     private var anchors: Map<String, Anchor> = emptyMap()
     private val history = HashMap<String, ArrayDeque<Pt>>()
 
@@ -102,6 +106,7 @@ class ThreatsOverlay : Overlay() {
             // NEPTUN positions arrive late; show how old each one is and fade the stale ones.
             val age = t.ageMin(now)
             val stale = age != null && age >= STALE_MIN
+            drawn[t.id] = hx to hy
             dot.color = color
             dot.alpha = if (stale) 110 else 255
             drawDrone(canvas, hx, hy, t.heading, 8f * d)
@@ -158,6 +163,14 @@ class ThreatsOverlay : Overlay() {
         "kab" -> 0xFFFFC14D.toInt()
         "uav", "recon" -> 0xFFFF8A3D.toInt()
         else -> 0xFFD0D7E2.toInt()
+    }
+
+    override fun onSingleTapConfirmed(e: android.view.MotionEvent, mapView: MapView): Boolean {
+        val d = mapView.resources.displayMetrics.density
+        val hit = threats.mapNotNull { t -> drawn[t.id]?.let { (x, y) -> t to Math.hypot((x - e.x).toDouble(), (y - e.y).toDouble()) } }
+            .filter { it.second <= 32 * d }.minByOrNull { it.second }?.first ?: return false
+        onThreatTap?.invoke(hit)
+        return true
     }
 
     private companion object {
