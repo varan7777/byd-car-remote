@@ -108,7 +108,7 @@ class DashboardView(context: Context) : View(context) {
         // Red for a red alert in our raion/oblast or a threat within the radius; yellow for a yellow raion alert.
         val alertAccent = when {
             a == null -> null
-            a.regionLevel == "red" || a.within.isNotEmpty() || (a.oblastAlert != null && a.regionLevel != "yellow") -> Ui.RED
+            a.regionLevel == "red" || a.within.isNotEmpty() || a.targetNear != null || (a.oblastAlert != null && a.regionLevel != "yellow") -> Ui.RED
             a.regionLevel == "yellow" -> Ui.YELLOW
             a.regionLevel != null -> Ui.PURPLE // any other official level (e.g. nuclear / chemical)
             else -> null
@@ -119,6 +119,7 @@ class DashboardView(context: Context) : View(context) {
             a.error != null && a.nearest == null -> "Немає даних"
             // A threat inside the radius is the reason for red, so say that rather than the alert level.
             a.within.isNotEmpty() -> "Поруч$km"
+            a.targetNear != null -> "Курс сюди"
             a.regionLevel == "red" || a.oblastAlert != null -> "Тривога$km"
             a.regionLevel == "yellow" -> "Жовта$km"
             a.regionLevel != null -> "Тривога: ${a.regionLevel}$km"

@@ -39,20 +39,25 @@ class AirForceFeed(private val url: String = "https://t.me/s/kpszsu") {
     }
 
     companion object {
-        // One message: its id, then its OWN text div (a reply's quoted parent uses
-        // «js-message_reply_text» and is skipped), then its time.
-        private val MESSAGE = Regex(
-            """data-post="([^"]+)".*?class="tgme_widget_message_text js-message_text"[^>]*>(.*?)</div>.*?<time datetime="([^"]+)"""",
-            RegexOption.DOT_MATCHES_ALL,
-        )
+        // Each message is its own block; inside it, its OWN text div (a reply's quoted parent uses
+        // «js-message_reply_text» and is skipped) and its time. A photo-only post has no text and is skipped.
+        private val BLOCK = Regex("""data-post="([^"]+)"""")
+        private val TEXT = Regex("""class="tgme_widget_message_text js-message_text"[^>]*>(.*?)</div>""", RegexOption.DOT_MATCHES_ALL)
+        private val TIME = Regex("""<time datetime="([^"]+)"""")
 
-        /** Plain-text posts from the preview page, newest last, within the last 40 minutes. */
-        fun parse(html: String, now: Long): List<AirForceParser.Post> = MESSAGE.findAll(html).mapNotNull { m ->
-            val at = AirThreat.parseIso(m.groupValues[3].replace(Regex("\\+00:00$"), "Z")) ?: return@mapNotNull null
-            if (now - at > 40 * 60_000) return@mapNotNull null
-            // Html.fromHtml turns <br> into line breaks itself (a literal \n would collapse to a space).
-            val text = android.text.Html.fromHtml(m.groupValues[2], android.text.Html.FROM_HTML_MODE_LEGACY).toString().trim()
-            AirForceParser.Post(m.groupValues[1], at, text)
-        }.toList()
+        /** Plain-text posts from the preview page, oldest first, within the last hour. */
+        fun parse(html: String, now: Long): List<AirForceParser.Post> {
+            val starts = BLOCK.findAll(html).toList()
+            return starts.mapIndexedNotNull { i, m ->
+                val block = html.substring(m.range.first, starts.getOrNull(i + 1)?.range?.first ?: html.length)
+                val text = TEXT.find(block)?.groupValues?.get(1) ?: return@mapIndexedNotNull null
+                val at = TIME.find(block)?.groupValues?.get(1)?.replace(Regex("\\+00:00$"), "Z")
+                    ?.let { AirThreat.parseIso(it) } ?: return@mapIndexedNotNull null
+                if (now - at > 60 * 60_000) return@mapIndexedNotNull null
+                // Html.fromHtml turns <br> into line breaks itself (a literal \n would collapse to a space).
+                val plain = android.text.Html.fromHtml(text, android.text.Html.FROM_HTML_MODE_LEGACY).toString().trim()
+                AirForceParser.Post(m.groupValues[1], at, plain)
+            }
+        }
     }
 }

@@ -198,7 +198,7 @@ class AirAlertActivity : Activity() {
         banner.text = s.bannerText(radius)
         // Red: air-raid in our oblast or a threat within radius. Amber: threats but far. Green: clear.
         val c = when {
-            s.regionLevel == "red" || s.within.isNotEmpty() || (s.oblastAlert != null && s.regionLevel != "yellow") -> 0xFF8E2A24.toInt()
+            s.regionLevel == "red" || s.within.isNotEmpty() || s.targetNear != null || (s.oblastAlert != null && s.regionLevel != "yellow") -> 0xFF8E2A24.toInt()
             s.regionLevel == "yellow" -> 0xFF8A7410.toInt()
             s.regionLevel != null -> 0xFF5B2E8C.toInt() // other official level (nuclear / chemical)
             s.nearest != null -> 0xFF7A5410.toInt()
@@ -229,6 +229,12 @@ class AirAlertActivity : Activity() {
         map.invalidate()
     }
 
+    /** Adds a border point unless it is within ~300 m of the last one: plenty for drawing, far fewer vertices. */
+    private fun addThinned(pts: ArrayList<GeoPoint>, lat: Double, lon: Double) {
+        val last = pts.lastOrNull()
+        if (last == null || kotlin.math.abs(last.latitude - lat) + kotlin.math.abs(last.longitude - lon) > 0.004) pts.add(GeoPoint(lat, lon))
+    }
+
     /** Rebuild the oblast borders, shading the ones in [shadedKeys] red. */
     private fun applyShading() {
         if (allShapes.isEmpty()) return
@@ -239,7 +245,7 @@ class AirAlertActivity : Activity() {
             for (ring in sh.rings) {
                 val pts = ArrayList<GeoPoint>(ring.size / 2)
                 var i = 0
-                while (i < ring.size) { pts.add(GeoPoint(ring[i + 1], ring[i])); i += 2 }
+                while (i < ring.size) { addThinned(pts, ring[i + 1], ring[i]); i += 2 }
                 map.overlays.add(0, Polygon().apply {
                     points = pts
                     // A light tint and a clear edge: the map and town names must stay readable under it.
@@ -259,7 +265,7 @@ class AirAlertActivity : Activity() {
             val alert = sh.key in shadedKeys
             val pts = ArrayList<GeoPoint>(ring.size / 2)
             var i = 0
-            while (i < ring.size) { pts.add(GeoPoint(ring[i + 1], ring[i])); i += 2 }
+            while (i < ring.size) { addThinned(pts, ring[i + 1], ring[i]); i += 2 }
             map.overlays.add(0, Polygon().apply {
                 points = pts
                 fillPaint.color = if (alert) 0x1FE24A3B else 0x00000000

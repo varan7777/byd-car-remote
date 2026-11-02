@@ -47,7 +47,7 @@ class AlertNotifier {
     }
 
     private fun rank(s: AirState): Int = when {
-        s.within.isNotEmpty() -> 3
+        s.within.isNotEmpty() || s.targetNear != null -> 3
         s.regionLevel == "red" || (s.oblastAlert != null && s.regionLevel != "yellow") -> 2
         s.regionLevel != null -> 1 // yellow or any other official level
         else -> 0
@@ -57,6 +57,7 @@ class AlertNotifier {
         append(levelEmoji(s.regionLevel, s.oblastAlert != null)).append(' ')
         append(levelName(s.regionLevel, s.oblastAlert != null))
         s.oblastAlert?.let { append(": ").append(it.name) }
+        if (s.within.isEmpty()) s.targetNear?.let { append("\n⚠️ Курс на ${it.placeName.ifBlank { "район авто" }} — поруч з авто") }
         s.within.firstOrNull()?.let { (t, km) ->
             append("\n⚠️ ${t.label} за ${km.roundToInt()} км від авто")
             if (s.approaching) append(", курс на авто")

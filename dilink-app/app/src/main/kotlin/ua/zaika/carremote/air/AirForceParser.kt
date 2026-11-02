@@ -184,18 +184,25 @@ object AirForceParser {
 
     fun parse(posts: List<Post>, gaz: Gazetteer): List<Sighting> = analyze(posts, gaz).sightings
 
+    /**
+     * One threat followed across posts: where it was last seen or said to be going ([lat]/[lon]),
+     * when, and its newest sighting. Follow-ups move it, so the next follow-up continues from there.
+     */
+    internal class Track(var lat: Double, var lon: Double, var atMs: Long, var last: Sighting)
+
     /** [parse] plus which threat lines were placed and which were not (for coverage checks). */
     internal fun analyze(posts: List<Post>, gaz: Gazetteer): Analysis {
         val out = ArrayList<Sighting>(); val resolved = ArrayList<String>(); val dropped = ArrayList<String>()
+        val tracks = ArrayList<Track>() // oldest update first
         for (post in posts.sortedBy { it.atMs }) {
             val lines = post.text.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
             val followUp = lines.none { kindOf(it) != null } && post.text.length <= 100 && lines.size <= 2
-            val recent = if (followUp) out.filter { post.atMs - it.atMs in 0..30 * 60_000L } else emptyList()
+            val recent = if (followUp) tracks.filter { post.atMs - it.atMs in 0..30 * 60_000L } else emptyList()
             if (followUp && recent.isEmpty()) continue
-            // The thread a follow-up continues: the newest sighting first (the last line of the newest post).
+            // The threads a follow-up may continue: the most recently updated first.
             val anchors = recent.asReversed()
             var header: Pair<String, Boolean>? = null
-            var headerOblast: String? = recent.lastOrNull()?.let { gaz.nearest(it.lat, it.lon)?.oblast }
+            var headerOblast: String? = anchors.firstOrNull()?.let { gaz.nearest(it.lat, it.lon)?.oblast }
             var headerCity: Place? = null
             lines.forEachIndexed { idx, line ->
                 if (line.length > 220 || line.startsWith("❗") || line.startsWith("💥")) return@forEachIndexed
@@ -212,50 +219,98 @@ object AirForceParser {
                     return@forEachIndexed
                 }
                 val kind = own ?: header ?: if (followUp) Pair("unknown", false) else return@forEachIndexed
-                val fixes = LineReader(toks, gaz, headerOblast, headerCity, followUp, anchors).fixes()
+                val clauses = clauses(toks)
+                val reader = LineReader(clauses[0], gaz, headerOblast, headerCity, followUp, anchors)
+                val fixes = ArrayList(reader.fixes())
+                if (clauses.size > 1) {
+                    // «… курс на захід та з північно-східного напрямку на обласний центр»: a second threat,
+                    // told relative to the place the first clause names.
+                    val city = reader.mainPlace
+                    val second = LineReader(clauses[1], gaz, city?.oblast ?: reader.hereOblasts.firstOrNull() ?: headerOblast,
+                        city ?: headerCity, followUp, anchors)
+                    fixes += second.fixes()
+                }
                 val before = out.size
+                // «На Українку/Обухів.»: alternatives of one line continue the same thread.
+                var lineTrack: Track? = null
+                val moves = ArrayList<Triple<Track, Sighting, Pair<Double, Double>>>()
                 fixes.forEachIndexed { k, f0 ->
                     var f = f0
                     var kd = kind
+                    var track: Track? = null
                     if (followUp) {
-                        val near: Sighting
+                        val near: Track
                         if (f.ctx) {
                             // «Курс на захід.»: the newest threat turned; a follow-up with nothing in it says nothing.
                             near = anchors.first()
-                            if (f.heading == null || near.targetOnly) return@forEachIndexed
-                            f = Fix(near.lat, near.lon, near.uncertaintyKm, f.heading, null, near.placeName, false)
+                            if (f.heading == null || near.last.targetOnly) return@forEachIndexed
+                            f = Fix(near.lat, near.lon, near.last.uncertaintyKm, f.heading, null, near.last.placeName, false)
                         } else {
-                            // «На Липовець.», «Теремки.» continue the thread: the newest threat near that place.
+                            // «На Липовець.», «Теремки.» continue a thread: the newest one that place is near.
                             val target = f.dest ?: (f.lat to f.lon)
                             val radius = if (f.fromDest) FOLLOW_DEST_KM else FOLLOW_HERE_KM
-                            near = anchors.filter { distKm(it.lat, it.lon, target.first, target.second) <= radius }
-                                .minByOrNull { distKm(it.lat, it.lon, target.first, target.second) }
+                            near = lineTrack?.takeIf { distKm(it.lat, it.lon, target.first, target.second) <= radius }
+                                ?: newestNear(anchors, target, radius)
                                 ?: return@forEachIndexed // a same-named village far from the thread is a different place
                             val d = distKm(near.lat, near.lon, target.first, target.second)
-                            if (near.targetOnly) {
+                            if (near.last.targetOnly) {
                                 // The thread is itself only a target: nothing to move from.
                             } else if (f.fromDest && d < 100) {
-                                f = Fix(near.lat, near.lon, near.uncertaintyKm,
-                                    bearing(near.lat, near.lon, target.first, target.second), target, near.placeName, false)
+                                f = Fix(near.lat, near.lon, near.last.uncertaintyKm,
+                                    if (d > 2) bearing(near.lat, near.lon, target.first, target.second) else near.last.headingDeg,
+                                    target, near.last.placeName, true)
                             } else if (!f.fromDest && f.heading == null && d > 2) {
                                 // It moved from the previous point to here.
                                 f = Fix(f.lat, f.lon, f.unc, bearing(near.lat, near.lon, f.lat, f.lon), null, f.label, false)
                             }
                         }
-                        kd = near.kind to near.jet
+                        kd = near.last.kind to near.last.jet
+                        track = near
+                        lineTrack = near
                     }
-                    out += Sighting(
+                    val s = Sighting(
                         id = if (k == 0) "${post.id}:$idx" else "${post.id}:$idx.$k",
                         atMs = post.atMs, kind = kd.first, jet = kd.second,
                         lat = f.lat, lon = f.lon, uncertaintyKm = f.unc, headingDeg = f.heading,
                         destLat = f.dest?.first, destLon = f.dest?.second, text = line, placeName = f.label,
                         targetOnly = f.targetOnly,
                     )
+                    out += s
+                    if (track == null) tracks += Track(s.lat, s.lon, post.atMs, s) else moves += Triple(track, s, if (f.fromDest && f.dest != null) f.dest!! else f.lat to f.lon)
+                }
+                for ((track, s, pt) in moves) {
+                    // The thread is now where the follow-up says it is, or where it says it goes.
+                    track.lat = pt.first; track.lon = pt.second; track.atMs = post.atMs; track.last = s
+                    tracks.remove(track); tracks += track
                 }
                 if (out.size > before) resolved += line else dropped += line
             }
         }
         return Analysis(out, resolved, dropped)
+    }
+
+    /** The most recently updated thread within [FOLLOW_HERE_KM] of [p], else within [radius]. */
+    private fun newestNear(anchors: List<Track>, p: Pair<Double, Double>, radius: Double): Track? {
+        for (r in listOf(minOf(FOLLOW_HERE_KM, radius), radius))
+            anchors.firstOrNull { distKm(it.lat, it.lon, p.first, p.second) <= r }?.let { return it }
+        return null
+    }
+
+    /**
+     * «…, курс на захід та заході від міста, курс на південь»: after a course, «та» followed by a new
+     * position («з <side>», «<side> від») starts a second threat. Returns one or two token runs.
+     */
+    private fun clauses(toks: List<Tok>): List<List<Tok>> {
+        var course = false
+        for (i in toks.indices) {
+            val w = toks[i].low
+            if (w == "курс" || w == "курсом" || w == "➡" || w == "напрямку") course = true
+            if (!course || w != "та" || i + 2 >= toks.size) continue
+            val a = toks[i + 1].low; val b = toks[i + 2].low
+            if ((a in FROM && sideWord(b) != null) || (sideWord(a)?.form == 'L' && b == "від"))
+                return listOf(toks.subList(0, i), toks.subList(i + 1, toks.size))
+        }
+        return listOf(toks)
     }
 
     /** How far from the thread a follow-up's place may be: where it is now, and where it is heading. */
@@ -417,9 +472,11 @@ object AirForceParser {
     private class LineReader(
         val toks: List<Tok>, val gaz: Gazetteer,
         val headerOblast: String?, val headerCity: Place?, val followUp: Boolean,
-        /** For a follow-up post: the thread's recent sightings, newest first; names resolve near them. */
-        val anchors: List<Sighting> = emptyList(),
+        /** For a follow-up post: the recent threads, most recently updated first; names resolve near them. */
+        val anchors: List<Track> = emptyList(),
     ) {
+        /** The settlement the line places the threat at (for «від міста» in a second clause). */
+        var mainPlace: Place? = null
         val ms = ArrayList<Mention>()
         val lineOblasts = ArrayList<String>()
         /** Oblasts named where it is or came from (not where it goes): they pick the right same-named village. */
@@ -556,7 +613,8 @@ object AirForceParser {
             val r = when {
                 p != null && p in FROM -> 'O'
                 sw.form == 'J' -> {
-                    val n = next(i); val nw = low(n)
+                    // Only the very next word: in «на північно-західному, курс на захід» the course is separate.
+                    val n = i + 1; val nw = if (n < toks.size && !toks[n].punct) toks[n].low else ""
                     when {
                         nw == "напрямку" -> { j = n + 1; if (p == "на") 'L' else 'D' }
                         nw == "напрямок" || nw == "курсом" || nw == "курс" -> { j = n + 1; 'D' }
@@ -598,29 +656,38 @@ object AirForceParser {
         }
 
         /**
-         * A place a follow-up names: first the candidate near the thread's newest sighting (within
-         * [FOLLOW_HERE_KM]), then the one the name means on its own if the thread is not far from it,
-         * and for a destination any candidate within [FOLLOW_DEST_KM] of the thread. Else none.
+         * A place a follow-up names: the most recently updated thread with a candidate within
+         * [FOLLOW_HERE_KM] (for a destination, then within [FOLLOW_DEST_KM]); of the candidates in range
+         * of that thread, one in a [preferred] oblast, then a city over a town over a village, and the
+         * nearest only to break a tie. Else none.
          */
-        private fun nearAnchor(m: Mention, preferred: List<String>): Place? {
-            fun closest(radius: Double): Place? {
+        private fun nearAnchor(m: Mention, preferred: List<String>, plain: List<String>): Place? {
+            val radius = if (m.role == 'D') FOLLOW_DEST_KM else FOLLOW_HERE_KM
+            fun within(tier: Double): Place? {
                 for (a in anchors) {
-                    val best = m.cands.minByOrNull { distKm(a.lat, a.lon, it.lat, it.lon) } ?: return null
-                    if (distKm(a.lat, a.lon, best.lat, best.lon) <= radius) return best
+                    fun d(p: Place) = distKm(a.lat, a.lon, p.lat, p.lon)
+                    if (m.cands.none { d(it) <= tier }) continue
+                    val best = m.cands.filter { d(it) <= radius }.minWithOrNull(compareBy<Place>(
+                        { p -> if (preferred.any { Gazetteer.sameOblast(it, p.oblast) }) 0 else 1 },
+                        { kindRank(it.kind) }, { d(it) },
+                    )) ?: continue
+                    return best
                 }
                 return null
             }
-            val radius = if (m.role == 'D') FOLLOW_DEST_KM else FOLLOW_HERE_KM
-            closest(FOLLOW_HERE_KM)?.let { return it }
-            gaz.choose(m.cands, preferred)?.let { p -> if (anchors.any { distKm(it.lat, it.lon, p.lat, p.lon) <= radius }) return p }
-            return if (m.role == 'D') closest(FOLLOW_DEST_KM) else null
+            within(FOLLOW_HERE_KM)?.let { return it }
+            // The place the name means on its own, if some recent thread is not far from it.
+            gaz.choose(m.cands, plain)?.let { p ->
+                if (anchors.any { distKm(it.lat, it.lon, p.lat, p.lon) <= radius }) return p
+            }
+            return if (m.role == 'D') within(FOLLOW_DEST_KM) else null
         }
 
         fun fixes(): List<Fix> {
             val here = hereOblasts + listOfNotNull(headerOblast, headerCity?.oblast)
             for (m in ms) if (m.type == 'P' && m.place == null) {
                 val preferred = listOfNotNull(m.near) + here + (if (m.role == 'D') lineOblasts else emptyList())
-                m.place = if (anchors.isNotEmpty()) nearAnchor(m, preferred) else gaz.choose(m.cands, preferred)
+                m.place = if (anchors.isNotEmpty()) nearAnchor(m, listOfNotNull(m.near) + hereOblasts, preferred) else gaz.choose(m.cands, preferred)
             }
             val ok = ms.filter { it.type != 'P' || it.place != null }
             val marker = ok.any { it.role == 'D' && !it.bare }
@@ -628,7 +695,9 @@ object AirForceParser {
                 // «на Погребище …, курс на захід», «КАБи на Донеччину, курс на …»: the first «на X» is where it is now.
                 val first = ok.firstOrNull { it.role == 'D' && it.bare && it.type == 'P' }
                     ?: ok.firstOrNull { it.role == 'D' && it.bare && it.type == 'R' }?.takeIf { ok.none { o -> o.role == 'L' && o.type == 'R' } }
-                first?.role = 'L'
+                // «з півночі Хмельниччини на Рівненщину, в напрямку …»: after «з X» the «на Y» is where it goes.
+                val origin = ok.indexOfFirst { it.role == 'O' && it.type != 'S' }
+                if (first != null && !(origin >= 0 && origin < ok.indexOf(first))) first.role = 'L'
             }
             val destList = ok.filter { it.role == 'D' && it.type != 'S' }
             val destSide = ok.firstOrNull { it.role == 'D' && it.type == 'S' && (it.side ?: -1) >= 0 }?.side
@@ -661,6 +730,7 @@ object AirForceParser {
             // 1. Named settlement where it is.
             if (locP.isNotEmpty()) {
                 val a = locP[0]
+                mainPlace = a.place
                 if (a.via == "між" && locP.size >= 2) {
                     val b = locP[1].place!!; val p = a.place!!
                     val la = (p.lat + b.lat) / 2; val lo = (p.lon + b.lon) / 2
@@ -681,10 +751,14 @@ object AirForceParser {
                 val p = last.place!!
                 val from = if (run >= 2) locP[run - 2].place!! else null
                 val moved = from?.let { bearing(it.lat, it.lon, p.lat, p.lon) }
+                // A long list («повз Немирів, Гнівань, Козятин та Хмільник») may be several threats: widen it.
+                val runPlaces = locP.subList(0, run).map { it.place!! }
+                val span = runPlaces.maxOf { x -> runPlaces.maxOf { y -> distKm(x.lat, x.lon, y.lat, y.lon) } }
+                fun wide(u: Double) = if (span > 60) max(u, span / 2) else u
                 val s = last.side
                 return if (s != null && s >= 0) {
-                    val (la, lo) = shift(p.lat, p.lon, s, 12.0); listOf(fix(la, lo, 12.0, p.name, moved))
-                } else listOf(fix(p.lat, p.lon, if (last.via == "районі") 5.0 else 7.0, p.name, moved))
+                    val (la, lo) = shift(p.lat, p.lon, s, 12.0); listOf(fix(la, lo, wide(12.0), p.name, moved))
+                } else listOf(fix(p.lat, p.lon, wide(if (last.via == "районі") 5.0 else 7.0), p.name, moved))
             }
             // 2. Oblast (and its side) where it is.
             val locR = ok.filter { it.role == 'L' && it.type == 'R' }
@@ -695,6 +769,19 @@ object AirForceParser {
                     return listOf(fromSide(town, originSide, 20.0, false))
                 }
                 val pts = locR.mapNotNull { m -> point(m)?.let { m to it } }
+                val targets = destList.filter { it.type == 'P' }
+                if (pts.size == 1 && town != null && targets.size >= 2 && targets[0] === dest) {
+                    // «на сході Дніпропетровщини - курсом на Петропавлівку, Юріївку»: it flies through the
+                    // towns in that order. If the side point is not before the first one, put it there.
+                    val t1 = town; val tn = targets.last().place!!
+                    val (sla, slo) = pts[0].second
+                    val through = bearing(t1.lat, t1.lon, tn.lat, tn.lon)
+                    if (angleBetween(bearing(sla, slo, t1.lat, t1.lon), through) > 60 ||
+                        distKm(sla, slo, tn.lat, tn.lon) < distKm(t1.lat, t1.lon, tn.lat, tn.lon)) {
+                        val (la, lo) = shift(t1.lat, t1.lon, (through + 180) % 360, FROM_SIDE_KM)
+                        return listOf(Fix(la, lo, FROM_SIDE_KM, bearing(la, lo, t1.lat, t1.lon), t1.lat to t1.lon, t1.name, false))
+                    }
+                }
                 if (pts.isNotEmpty()) {
                     val first = pts[0].first
                     if ((first.via == "межі" || first.via == "через" || first.via == "між") && pts.size >= 2) {
@@ -726,11 +813,9 @@ object AirForceParser {
             ok.firstOrNull { it.role == 'O' && it.type == 'R' }?.let { m ->
                 val r = gaz.regions[m.oblast] ?: return@let
                 if ((m.side ?: -1) >= 0) { val p = r.point(m.side); return listOf(fix(p.first, p.second, 50.0, m.oblast!!)) }
-                return if (destPt != null) {
-                    listOf(fix((r.lat + destPt.first) / 2, (r.lon + destPt.second) / 2, 60.0, m.oblast!!))
-                } else listOf(fix(r.lat, r.lon, 60.0, m.oblast!!))
+                // «з Хмельниччини на Рівненщину»: in the oblast it comes from, heading where it goes.
+                return listOf(fix(r.lat, r.lon, 60.0, m.oblast!!))
             }
-            if (sea) return emptyList() // «з Чорного моря» without a point on land
             // 6. Only where it goes. With a side it comes from, it is out on that side; otherwise only the target is known.
             val d0 = dest
             if (d0 != null && destPt != null) {
@@ -755,6 +840,7 @@ object AirForceParser {
                     }
                 }
             }
+            if (sea) return emptyList() // «з Чорного моря» without a point on land
             // 7. Only the oblast named before the threat («Київщина: БпЛА курсом на захід»).
             val ctx = hereOblasts.firstOrNull() ?: headerOblast
             if (ctx != null && (destSide != null || ms.isEmpty())) {
@@ -765,6 +851,10 @@ object AirForceParser {
     }
 
     // ---- geometry ----
+
+    private fun kindRank(k: Char) = when (k) { 'c' -> 0; 't' -> 1; else -> 2 }
+
+    private fun angleBetween(a: Int, b: Int): Int { val d = abs(a - b) % 360; return if (d > 180) 360 - d else d }
 
     internal fun distKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
         val dLat = Math.toRadians(lat2 - lat1); val dLon = Math.toRadians(lon2 - lon1)

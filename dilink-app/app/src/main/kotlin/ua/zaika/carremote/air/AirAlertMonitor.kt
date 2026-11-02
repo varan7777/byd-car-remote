@@ -27,7 +27,7 @@ data class AirState(
     val targetNear: Sighting? = null,            // such a target inside the alarm radius
 ) {
     /** Worth a beep and a red banner: official siren for our oblast, or a threat within radius. */
-    val isAlarm: Boolean get() = oblastAlert != null || within.isNotEmpty()
+    val isAlarm: Boolean get() = oblastAlert != null || within.isNotEmpty() || targetNear != null
 
     private fun threatLine(radiusKm: Double): String {
         val n = nearest ?: return "🟢 Поблизу чисто"
@@ -50,6 +50,7 @@ data class AirState(
             lines.add("${AlertNotifier.levelEmoji(regionLevel, oblastAlert != null)} " +
                 "${AlertNotifier.levelName(regionLevel, oblastAlert != null)}$where$why")
         }
+        targetNear?.let { lines.add("🚨 Курс на ваш район: ${it.placeName.ifBlank { "поруч" }}") }
         lines.add(threatLine(radiusKm))
         lines.add("Загроз у країні: $totalThreats")
         // NEPTUN is an aggregator: say how fresh its newest position is.
@@ -77,6 +78,8 @@ data class AirState(
 
     /** Spoken warning when things get worse, as recorded phrases (see [Speaker]). */
     fun voiceClips(speaker: Speaker): List<String> {
+        // A town in our radius named as the target is the most urgent thing to say, alert or not.
+        if (within.isEmpty()) targetNear?.let { t -> return listOf("uvaha", threatClip(t.kind, t.jet), "kurs") }
         if (within.isEmpty()) when {
             oblastAlert != null && regionLevel != "yellow" ->
                 return listOfNotNull("tryvoha", speaker.regionClip(oblastAlert.name))
@@ -84,7 +87,6 @@ data class AirState(
             regionLevel == "yellow" -> return listOf("zhovta")
             regionLevel != null -> return listOf("tryvoha_rayon")
         }
-        if (within.isEmpty()) targetNear?.let { t -> return listOf("uvaha", threatClip(t.kind, t.jet), "kurs") }
         val n = nearest ?: return listOf("tryvoha")
         val km = nearestKm?.roundToInt() ?: return listOf("uvaha", threatClip(n))
         val dist = if (km < 1) "poruch" else "km${km.coerceAtMost(100)}"
@@ -140,8 +142,8 @@ class AirAlertMonitor(
             parsedFrom = posts
             sightings = gazetteer?.let { g -> runCatching { AirForceParser.parse(posts, g) }.getOrNull() } ?: emptyList()
         }
-        val now = System.currentTimeMillis()
-        return sightings.filter { now - it.atMs < lifetimeMs(it) }
+        val now = nowMs()
+        return sightings.filter { now - it.atMs in -120_000L..lifetimeMs(it) }
     }
 
     /**
@@ -160,25 +162,56 @@ class AirAlertMonitor(
      * NEPTUN tracks plus Air Force sightings. A sighting that matches a NEPTUN track of the same kind
      * nearby enriches it (jet, the post's words) instead of doubling it; the rest are tracks of their own.
      */
+    /**
+     * Air Force sightings of one drone come post after post («…курс на X», «X.», «Над Y.»): chain them
+     * (same kind, next one within 60 km and 15 min of the last), so one drone is one marker with a
+     * stable id and a trail, at its newest position.
+     */
+    private fun chains(af: List<Sighting>): List<List<Sighting>> {
+        val out = ArrayList<MutableList<Sighting>>()
+        for (s in af.filter { !it.targetOnly }.sortedBy { it.atMs }) {
+            val c = out.filter { c -> val l = c.last()
+                sameKind(l.kind, s.kind) && s.atMs - l.atMs in 0..15 * 60_000 && Geo.distanceKm(l.lat, l.lon, s.lat, s.lon) <= 60
+            }.minByOrNull { c -> Geo.distanceKm(c.last().lat, c.last().lon, s.lat, s.lon) }
+            if (c != null) c += s else out += mutableListOf(s)
+        }
+        return out
+    }
+
+    /**
+     * NEPTUN tracks plus Air Force sightings. A drone the channel reports where NEPTUN already has one
+     * (same kind, the NEAREST track within 30 km) enriches that track — and moves it to the channel's
+     * position when that is newer; the rest become tracks of their own.
+     */
     private fun merge(neptun: List<AirThreat>, af: List<Sighting>): List<AirThreat> {
         val out = neptun.toMutableList()
-        for (s in af.filter { !it.targetOnly }.sortedByDescending { it.atMs }) {
-            val i = out.indexOfFirst { t ->
+        for (chain in chains(af)) {
+            val s = chain.last()
+            val i = out.withIndex().filter { (_, t) ->
                 t.source == "neptun" && sameKind(t.type, s.kind) &&
                     Geo.distanceKm(t.lat, t.lon, s.lat, s.lon) <= maxOf(30.0, s.uncertaintyKm)
-            }
-            if (i >= 0) {
+            }.minByOrNull { (_, t) -> Geo.distanceKm(t.lat, t.lon, s.lat, s.lon) }?.index
+            if (i != null) {
                 val t = out[i]
-                if (t.airForce == null) out[i] = t.copy(airForce = s.text.takeIf { s.jet } ?: t.airForce,
-                    explanation = t.explanation.ifBlank { s.text })
+                val fresher = s.uncertaintyKm <= 20 && s.atMs > (t.updatedMs ?: 0)
+                out[i] = t.copy(
+                    airForce = s.text.takeIf { s.jet } ?: t.airForce,
+                    explanation = t.explanation.ifBlank { s.text },
+                    lat = if (fresher) s.lat else t.lat, lon = if (fresher) s.lon else t.lon,
+                    updatedMs = if (fresher) s.atMs else t.updatedMs,
+                    heading = t.heading ?: s.headingDeg,
+                )
                 continue
             }
             out += AirThreat(
-                id = "af:${s.id}", type = s.kind, title = if (s.jet) "Реактивний БпЛА" else "",
-                region = "", locality = s.placeName, lat = s.lat, lon = s.lon, heading = s.headingDeg,
-                confidence = if (s.uncertaintyKm <= 15) "medium" else "low", sourceCount = 1,
+                id = "af:${chain.first().id}", type = s.kind, title = if (s.jet) "Реактивний БпЛА" else "",
+                region = "", locality = s.placeName, lat = s.lat, lon = s.lon,
+                heading = s.headingDeg ?: chain.takeLast(2).takeIf { it.size == 2 }?.let { (p, q) ->
+                    if (p.lat == q.lat && p.lon == q.lon) null else Geo.bearingDeg(p.lat, p.lon, q.lat, q.lon).toInt() },
+                confidence = if (s.uncertaintyKm <= 15) "medium" else "low", sourceCount = chain.size,
                 uncertaintyKm = s.uncertaintyKm, explanation = s.text, updatedMs = s.atMs,
                 positionQuality = "Повітряні сили", airForce = s.text.takeIf { s.jet }, source = "airforce",
+                trail = chain.map { Triple(it.lat, it.lon, it.atMs) },
             )
         }
         return out
@@ -186,10 +219,17 @@ class AirAlertMonitor(
 
     /** A position too old to sound the alarm for: 15 min for a Shahed, 5 for anything jet-fast. */
     private fun stale(t: AirThreat): Boolean {
-        val age = t.updatedMs?.let { System.currentTimeMillis() - it } ?: return false
+        val age = t.updatedMs?.let { nowMs() - it } ?: return false
         val fast = t.jet || t.type in setOf("missile", "ballistic", "mig31k")
         return age > (if (fast) 5 else 15) * 60_000L
     }
+
+    /**
+     * "Now" on NEPTUN's clock: the head unit's own clock can be minutes off, and every age test
+     * (stale, lifetimes) would then hide real threats or keep old ones alive.
+     */
+    @Volatile private var clockOffsetMs = 0L
+    private fun nowMs() = System.currentTimeMillis() + clockOffsetMs
 
     private fun sameKind(a: String, b: String) = a == b || (a in DRONES && b in DRONES)
 
@@ -219,9 +259,10 @@ class AirAlertMonitor(
 
     init { loadHistory() }
 
-    private fun withSpeed(list: List<AirThreat>): List<AirThreat> {
+    private fun withSpeed(list: List<AirThreat>, keepOthers: Boolean = false): List<AirThreat> {
         val now = System.currentTimeMillis()
-        seen.keys.retainAll(list.map { it.id }.toSet())
+        // When NEPTUN didn't answer this poll, keep its tracks' history for the next good one.
+        if (!keepOthers && seen.keys.retainAll(list.map { it.id }.toSet())) dirty = true
         return list.map { t ->
             val h = seen.getOrPut(t.id) { ArrayDeque() }
             // NEPTUN's own earlier fixes fill in what we didn't see (before we started, or while asleep).
@@ -230,6 +271,7 @@ class AirAlertMonitor(
             if (t.trail.isNotEmpty()) { val sorted = h.sortedBy { it.third }; h.clear(); h.addAll(sorted) }
             val at = t.updatedMs ?: now
             val last = h.lastOrNull()
+            val sizeBefore = h.size; val lastBefore = last
             when {
                 last == null -> h.addLast(Triple(t.lat, t.lon, at))
                 last.first == t.lat && last.second == t.lon -> Unit
@@ -240,7 +282,7 @@ class AirAlertMonitor(
             // Age against the newest fix, not the head unit's clock, so the latest point always stays.
             while (h.size > 30 || (h.size > 1 && h.last().third - h.first().third > 1_800_000)) h.removeFirst()
             val path = h.map { it.first to it.second }
-            dirty = true
+            if (h.size != sizeBefore || h.lastOrNull() != lastBefore) dirty = true
             val speed = t.speedKmh ?: AirThreat.steadySpeed(h.toList(), t.uncertaintyKm)
             t.copy(speedKmh = speed, path = path)
         }
@@ -253,44 +295,53 @@ class AirAlertMonitor(
         }
     }
 
+    /** The last good /alerts answer: a short NEPTUN hiccup must not read as «no alert» (and a false «відбій»). */
+    private var lastAlerts: NeptunClient.Alerts? = null
+    private var lastAlertsMs = 0L
+
     private fun poll(): AirState {
         val fix = Geo.lastKnown(context)
-        val af = runCatching { airForceSightings() }.getOrDefault(emptyList())
         // NEPTUN and the Air Force channel are independent: one failing doesn't silence the other.
         val neptun = runCatching { client.threats() }
-        val all = runCatching { client.alerts() }.getOrNull()
-        if (neptun.isFailure && all == null && af.isEmpty()) {
+        neptun.getOrNull()?.serverTime?.let { AirThreat.parseIso(it) }?.let { clockOffsetMs = it - System.currentTimeMillis() }
+        val af = runCatching { airForceSightings() }.getOrDefault(emptyList())
+        val fresh = runCatching { client.alerts() }.getOrNull()
+        if (fresh != null) { lastAlerts = fresh; lastAlertsMs = System.currentTimeMillis() }
+        val all = fresh ?: lastAlerts?.takeIf { System.currentTimeMillis() - lastAlertsMs < 10 * 60_000 }
+        if (all == null) {
+            // Without the official alerts we can't tell calm from alarm: say so rather than «відбій».
             val e = neptun.exceptionOrNull()
             return AirState(fix, null, null, false, emptyList(), null, 0, null,
-                "нема зв'язку з NEPTUN (${e?.message ?: e?.javaClass?.simpleName})")
+                "нема зв'язку з NEPTUN (${e?.message ?: e?.javaClass?.simpleName ?: "тривоги недоступні"})")
         }
-        val list = withSpeed(merge(neptun.getOrNull()?.list ?: emptyList(), af))
+        val list = withSpeed(merge(neptun.getOrNull()?.list ?: emptyList(), af), keepOthers = neptun.isFailure)
         saveHistory()
         val serverTime = neptun.getOrNull()?.serverTime
-        val alerts = all?.oblasts ?: emptyList()
+        val alerts = all.oblasts
         val alertKeys = alerts.map { it.key }.toSet()
-        val raionLevels = all?.raions?.associate { it.key to it.level } ?: emptyMap()
+        val raionLevels = all.raions.associate { it.key to it.level }
         val targets = af.filter { it.targetOnly }
         if (fix == null) {
             return AirState(null, null, null, false, emptyList(), null, list.size, serverTime,
                 "немає GPS-координат авто", all = list, alertKeys = alertKeys, raionLevels = raionLevels, targets = targets)
         }
         val (lat, lon) = fix
-        val ranked = list.map { it to Geo.distanceKm(lat, lon, it.lat, it.lon) }.sortedBy { it.second }
+        // Only positions known well enough and fresh enough speak for the car: an oblast-wide guess
+        // (±40–60 km) or an old fix of a fast threat must not drive the banner, the voice or the alarm.
+        val ranked = list.filter { (it.source == "neptun" || it.uncertaintyKm <= 20) && !stale(it) }
+            .map { it to Geo.distanceKm(lat, lon, it.lat, it.lon) }.sortedBy { it.second }
         val nearest = ranked.firstOrNull()
         val approaching = nearest?.let { (t, _) ->
             t.heading?.let { h -> Geo.angleDiff(Geo.bearingDeg(t.lat, t.lon, lat, lon), h.toDouble()) < 60 } ?: false
         } ?: false
-        // A position is "within" only when it is known well enough: an oblast-wide guess (±40–60 km)
-        // must not set off the alarm on its own.
-        val within = ranked.filter { (t, km) ->
-            km <= radiusKm && (t.source == "neptun" || t.uncertaintyKm <= 20) && !stale(t)
-        }
+        val within = ranked.filter { (_, km) -> km <= radiusKm }
         // «Курс на <town>» where the town is inside the radius: warn now, before anyone has a position.
-        val targetNear = targets.filter { Geo.distanceKm(lat, lon, it.lat, it.lon) <= radiusKm }.maxByOrNull { it.atMs }
+        // Only a named town counts — «курс на Вінниччину» lands on the oblast's middle, not on us.
+        val targetNear = targets.filter { it.uncertaintyKm <= 20 && Geo.distanceKm(lat, lon, it.lat, it.lon) <= radiusKm }
+            .maxByOrNull { it.atMs }
         val oblastKey = regions.keyAt(lat, lon)
         val oblastAlert = oblastKey?.let { k -> alerts.firstOrNull { it.key == k } }
-        val raionAlert = raions.keyAt(lat, lon)?.let { k -> all?.raions?.firstOrNull { it.key == k } }
+        val raionAlert = raions.keyAt(lat, lon)?.let { k -> all.raions.firstOrNull { it.key == k } }
         val levels = listOfNotNull(oblastAlert?.level, raionAlert?.level)
         val regionLevel = when { "red" in levels -> "red"; "yellow" in levels -> "yellow"; else -> null }
         return AirState(fix, nearest?.first, nearest?.second, approaching, within, oblastAlert,

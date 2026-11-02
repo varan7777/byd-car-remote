@@ -74,7 +74,7 @@ class ThreatsOverlay : Overlay() {
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
     private val dronePath = Path()
     private val trailPath = Path()
-    private val backdrop = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xD90B1020.toInt(); style = Paint.Style.FILL }
+    private var ringDash: android.graphics.DashPathEffect? = null
 
     /** The colour halfway to grey, fully opaque: how a marker with old data looks. */
     private fun greyed(c: Int): Int {
@@ -129,9 +129,8 @@ class ThreatsOverlay : Overlay() {
             val fast = t.jet || t.type in setOf("missile", "ballistic", "mig31k")
             val stale = age != null && age >= (if (fast) 5 else STALE_MIN)
             drawn[t.id] = hx to hy
-            // An opaque backdrop so borders and shading never show through the glyph; old data is
-            // drawn greyer, not see-through.
-            canvas.drawCircle(hx, hy, 15f * d, backdrop)
+            // Glyphs are fully opaque (old data is drawn greyer, not see-through), so borders and
+            // shading never show through them.
             dot.color = if (stale) greyed(color) else color
             drawThreat(canvas, kind, hx, hy, t.heading, 14f * d)
             // A group of drones carries its size in the title, e.g. «Група БпЛА (3+)».
@@ -142,12 +141,13 @@ class ThreatsOverlay : Overlay() {
             if (age != null) canvas.drawText(tag + if (age < 1) "щойно" else "$age хв", hx + 17f * d, hy + 18f * d, label)
         }
 
-        for (tg in targets) {
+        val dash = ringDash ?: android.graphics.DashPathEffect(floatArrayOf(5f * d, 4f * d), 0f).also { ringDash = it }
+        for (tg in targets.filter { it.uncertaintyKm <= 20 }.distinctBy { it.placeName }) {
             proj.toPixels(GeoPoint(tg.lat, tg.lon), head)
             val x = head.x.toFloat(); val y = head.y.toFloat()
             ring.color = colorFor(if (tg.jet && tg.kind == "uav") "jet_uav" else tg.kind)
             ring.strokeWidth = 2.5f * d
-            ring.pathEffect = android.graphics.DashPathEffect(floatArrayOf(5f * d, 4f * d), 0f)
+            ring.pathEffect = dash
             canvas.drawCircle(x, y, 14f * d, ring)
             canvas.drawText("курс сюди", x + 17f * d, y + 4f * d, label)
         }
