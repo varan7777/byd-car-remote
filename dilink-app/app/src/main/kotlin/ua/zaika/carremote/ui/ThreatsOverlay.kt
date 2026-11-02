@@ -222,6 +222,14 @@ class ThreatsOverlay : Overlay() {
         else -> 0xFFD0D7E2.toInt()
     }
 
+    /** One marker glyph as on the map, nose up, for the legend. */
+    fun drawGlyph(canvas: Canvas, kind: String, cx: Float, cy: Float, size: Float, density: Float) {
+        outline.strokeWidth = 1.5f * density
+        label.textSize = 12f * density
+        dot.color = colorFor(kind)
+        drawThreat(canvas, kind, cx, cy, null, size)
+    }
+
     /** NEPTUN types a jet Shahed as a plain "uav"; only its title tells it apart. */
     private fun kindOf(t: AirThreat): String =
         if (t.type == "uav" && JET.containsMatchIn(t.title + " " + t.explanation)) "jet_uav" else t.type

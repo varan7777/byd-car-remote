@@ -129,6 +129,7 @@ class AirAlertActivity : Activity() {
             })
             addView(banner, LinearLayout.LayoutParams(MATCH, WRAP))
             addView(settingsPanel, LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(0, dp(16), 0, 0) })
+            addView(legend(), LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(0, dp(10), 0, 0) })
             addView(View(context), LinearLayout.LayoutParams(MATCH, 0, 1f))
             addView(recenter, LinearLayout.LayoutParams(MATCH, WRAP))
         }
@@ -224,6 +225,40 @@ class AirAlertActivity : Activity() {
             })
         }
         map.invalidate()
+    }
+
+    /** What each marker on the map means, drawn with the map's own glyphs. */
+    private fun legend(): View {
+        val items = listOf("uav" to "БпЛА (шахед)", "jet_uav" to "Реактивний БпЛА", "recon" to "Розвідник",
+            "fpv" to "FPV-дрон", "missile" to "Крилата ракета", "ballistic" to "Балістика",
+            "kab" to "КАБ", "mig31k" to "МіГ-31К")
+        val d = resources.displayMetrics.density
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            items.chunked(2).forEach { pair ->
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    pair.forEach { (kind, name) ->
+                        addView(LinearLayout(context).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = Gravity.CENTER_VERTICAL
+                            addView(object : View(context) {
+                                override fun onDraw(c: android.graphics.Canvas) =
+                                    threatsOverlay.drawGlyph(c, kind, width / 2f, height / 2f, 10f * d, d)
+                            }, LinearLayout.LayoutParams(dp(30), dp(28)))
+                            addView(TextView(context).apply {
+                                text = name; setTextColor(Ui.text2c(context)); textSize = 14f; typeface = sf
+                                setPadding(dp(6), 0, 0, 0)
+                            })
+                        }, LinearLayout.LayoutParams(0, WRAP, 1f))
+                    }
+                })
+            }
+            addView(TextView(context).apply {
+                text = "«N хв» — коли оновлено, «×3» — група, хвіст — шлях."
+                setTextColor(Ui.text2c(context)); textSize = 13f; typeface = sf; setPadding(0, dp(6), 0, 0)
+            })
+        }
     }
 
     private fun buildSettingsPanel(): LinearLayout {
