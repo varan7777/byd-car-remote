@@ -3,6 +3,7 @@ package ua.zaika.carremote
 import android.content.SharedPreferences
 import ua.zaika.carremote.car.Autoservice
 import ua.zaika.carremote.car.CarSnapshot
+import ua.zaika.carremote.car.ChargeLog
 import ua.zaika.carremote.car.Control
 import ua.zaika.carremote.car.Controls
 import ua.zaika.carremote.car.Fids
@@ -27,6 +28,7 @@ class CommandRouter(
     private val car: Autoservice,
     @Volatile private var ownerChatId: Long,
     private val prefs: SharedPreferences,
+    private val context: android.content.Context? = null, // for the charging journal
 ) {
     fun setOwner(chatId: Long) { ownerChatId = chatId }
     /** Greeting that also (re)shows the persistent keyboard. */
@@ -98,9 +100,31 @@ class CommandRouter(
 
             else -> when {
                 token.startsWith("setlow_") -> Reply(setLow(token.removePrefix("setlow_").toIntOrNull()))
+                token.startsWith("tariff_") -> Reply(chooseTariff(token.removePrefix("tariff_")))
                 else -> Controls.byId[token]?.let { run(it) } ?: Reply("Невідома команда. /help — список.")
             }
         }
+    }
+
+    /** Telegram question for a fast charge that has just started: which tariff to bill it at. */
+    fun tariffPrompt(start: Long): Reply {
+        val cur = prefs.getString(CarRemoteService.KEY_CURRENCY, "грн")?.ifBlank { "грн" } ?: "грн"
+        val names = mapOf("dc1" to "Швидка 1", "dc2" to "Швидка 2")
+        return Reply(
+            "⚡ Почалась швидка зарядка. За яким тарифом її рахувати?\nЯкщо не обрати, рахується дорожчий.",
+            InlineKeyboard(ChargeLog.dcTariffs(prefs).map { (k, price) ->
+                listOf(Button("${names[k]} · ${"%.2f".format(price)} $cur/кВт·год", "tariff_${start}_$k"))
+            }),
+        )
+    }
+
+    private fun chooseTariff(arg: String): String {
+        val start = arg.substringBefore('_').toLongOrNull() ?: return "Не вдалося записати тариф."
+        val key = arg.substringAfter('_').takeIf { it == "dc1" || it == "dc2" } ?: return "Не вдалося записати тариф."
+        // Still charging: the recorder bills it on finish. Already over: re-bill the saved session.
+        prefs.edit().putString(ChargeLog.PREF_CHOSEN + start, key).apply()
+        context?.let { ChargeLog.setTariff(it, start, key) }
+        return "Записано: ${if (key == "dc1") "Швидка 1" else "Швидка 2"}."
     }
 
     private fun status(): String = if (car.isReachable()) StatusReport.build(car) else noAdb()

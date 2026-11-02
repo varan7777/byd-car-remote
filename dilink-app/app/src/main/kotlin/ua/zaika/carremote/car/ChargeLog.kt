@@ -89,7 +89,11 @@ object ChargeLog {
     fun defaultKey(prefs: SharedPreferences, dc: Boolean): String? =
         if (!dc) "home".takeIf { tariff(prefs, it) != null } else dcTariffs(prefs).firstOrNull()?.first
 
-    /** Watches the live readings; call every poll from the service. */
+    /**
+     * Watches the live readings; call every poll from the service. The session in progress is
+     * kept in prefs, so an app restart mid-charge (the head unit kills us on sleep) continues it
+     * instead of losing it.
+     */
     class Recorder(private val context: Context, private val prefs: SharedPreferences, private val onDcStart: (Long) -> Unit) {
         private var startMs = 0L
         private var dc = false
@@ -99,19 +103,30 @@ object ChargeLog {
         private var lastMs = 0L
         private var counter = 0.0
         private var idleSince = 0L
+        private var km0: Int? = null
 
         val activeStart: Long? get() = startMs.takeIf { it > 0 }
+
+        init { restore() }
 
         fun poll(car: Autoservice) {
             val gun = car.getInt(Fids.DEV_CHARGING, Fids.GUN_CONNECT_STATE)
             val bms = car.getInt(Fids.DEV_CHARGING, Fids.CHARGING_BMS_STATE)
             val soc = car.getFloat(Fids.DEV_STATISTIC, Fids.SOC)
+            val km = car.getInt(Fids.DEV_STATISTIC, Fids.LIFETIME_MILEAGE)
+            val gear = car.getInt(Fids.DEV_GEAR, Fids.GEAR)
             val now = System.currentTimeMillis()
             val plugged = gun != null && gun in 2..4 // 2 AC, 3 DC, 4 AC+DC; 5 = V2L (discharging) is not charging
             val charging = plugged && bms == 1
+            // A car that drives can't be on a cable: whatever the plug reading says, that charge is over.
+            val moved = (km != null && km0 != null && km - km0!! >= 5) || (gear != null && gear != 1)
+
+            // The car has driven since, or we were away and the cable is out now: that charge
+            // ended back then, so close it at its last reading and let a new one start.
+            if (startMs != 0L && (moved || (!plugged && now - lastMs > 5 * 60_000))) finish(lastMs)
 
             if (charging && startMs == 0L) {
-                startMs = now; dc = gun == 3 || gun == 4; soc0 = soc; integrated = 0.0; counter = 0.0; lastMs = now
+                startMs = now; dc = gun == 3 || gun == 4; soc0 = soc; integrated = 0.0; counter = 0.0; lastMs = now; km0 = km
                 if (dc && dcTariffs(prefs).size > 1) onDcStart(startMs)
             }
             if (startMs == 0L) return
@@ -131,10 +146,10 @@ object ChargeLog {
             lastMs = now
 
             // Ends when the cable is out, or the BMS has stopped charging for 10 minutes.
-            if (!plugged || (idleSince != 0L && now - idleSince > 10 * 60_000)) finish(now)
+            if (!plugged || (idleSince != 0L && now - idleSince > 10 * 60_000)) finish(now) else persist()
         }
 
-        private fun finish(now: Long) {
+        private fun finish(end: Long) {
             val bySoc = if (soc0 != null && lastSoc != null) ((lastSoc!! - soc0!!) / 100.0 * PACK_KWH).coerceAtLeast(0.0) else 0.0
             val kwh = when {
                 counter >= 0.3 -> counter
@@ -144,12 +159,33 @@ object ChargeLog {
             if (kwh >= 0.2) {
                 val chosen = prefs.getString(PREF_CHOSEN + startMs, null)
                 val key = chosen ?: defaultKey(prefs, dc)
-                add(context, ChargeSession(startMs, now, dc, soc0, lastSoc, kwh, key, key?.let { tariff(prefs, it) }))
+                add(context, ChargeSession(startMs, end, dc, soc0, lastSoc, kwh, key, key?.let { tariff(prefs, it) }))
                 prefs.edit().remove(PREF_CHOSEN + startMs).apply()
             }
-            startMs = 0; idleSince = 0; soc0 = null; lastSoc = null
+            startMs = 0; idleSince = 0; soc0 = null; lastSoc = null; km0 = null
+            prefs.edit().remove(PREF_ACTIVE).apply()
+        }
+
+        private fun persist() {
+            prefs.edit().putString(PREF_ACTIVE, JSONObject().put("start", startMs).put("dc", dc)
+                .put("soc0", soc0?.toDouble() ?: JSONObject.NULL).put("soc1", lastSoc?.toDouble() ?: JSONObject.NULL)
+                .put("int", integrated).put("cnt", counter).put("last", lastMs).put("idle", idleSince)
+                .put("km0", km0 ?: JSONObject.NULL).toString()).apply()
+        }
+
+        private fun restore() = runCatching {
+            val j = JSONObject(prefs.getString(PREF_ACTIVE, null) ?: return@runCatching)
+            startMs = j.getLong("start"); dc = j.getBoolean("dc")
+            soc0 = j.optDouble("soc0").takeIf { !it.isNaN() }?.toFloat()
+            lastSoc = j.optDouble("soc1").takeIf { !it.isNaN() }?.toFloat()
+            integrated = j.optDouble("int", 0.0); counter = j.optDouble("cnt", 0.0)
+            lastMs = j.optLong("last", startMs); idleSince = j.optLong("idle", 0L)
+            km0 = if (j.isNull("km0")) null else j.optInt("km0")
         }
     }
+
+    /** The session in progress, so a restart picks it up. */
+    private const val PREF_ACTIVE = "charge_active"
 
     /** Where the tariff pop-up stores the owner's choice for a session still in progress. */
     const val PREF_CHOSEN = "charge_tariff_"

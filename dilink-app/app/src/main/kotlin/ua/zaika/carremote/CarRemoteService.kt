@@ -171,7 +171,7 @@ class CarRemoteService : Service() {
             updateStatus("Telegram: немає TELEGRAM_BOT_TOKEN у secrets.properties")
             return
         }
-        val router = CommandRouter(car, owner, prefs)
+        val router = CommandRouter(car, owner, prefs, applicationContext)
         val bot: RemoteBot = if (hubMode) HubBot(prefs, router::handle) else TelegramBot(token, prefs, router::handle)
 
         // Shell-uid watchdog: survives ignition-off, restarts us on wake, and sends the
@@ -236,15 +236,18 @@ class CarRemoteService : Service() {
         scope.launch {
             val recorder = ua.zaika.carremote.car.ChargeLog.Recorder(applicationContext, prefs) { start ->
                 // More than one fast-charge tariff: ask which one (the dearer one is used if ignored).
+                // On the screen — Android may refuse to open it from the background — and in
+                // Telegram, where the owner standing at the charger sees it anyway.
                 runCatching {
                     startActivity(Intent(this@CarRemoteService, ua.zaika.carremote.ui.ChargeTariffActivity::class.java)
                         .putExtra(ua.zaika.carremote.ui.ChargeTariffActivity.EXTRA_START, start)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 }
+                if (owner != 0L) runCatching { bot.send(owner, router.tariffPrompt(start)) }
             }
             while (isActive) {
                 if (car.isReachable()) runCatching { recorder.poll(car) }
-                delay(if (recorder.activeStart != null) 20_000 else 60_000)
+                delay(20_000) // catch the cable going in within seconds, so the question comes at once
             }
         }
 
