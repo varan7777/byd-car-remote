@@ -51,6 +51,7 @@ class AirAlertActivity : Activity() {
 
     private lateinit var map: MapView
     private val threatsOverlay = ThreatsOverlay()
+    private val placeLabels = PlaceLabelsOverlay()
     private lateinit var banner: TextView
     private lateinit var settingsPanel: LinearLayout
     private lateinit var radiusLabel: TextView
@@ -80,19 +81,20 @@ class AirAlertActivity : Activity() {
         }
 
         map = MapView(this).apply {
-            setTileSource(TileSourceFactory.MAPNIK) // standard OSM: normal colours, labels, no key
+            setTileSource(TileSourceFactory.MAPNIK) // standard OSM: normal colours, no key
             setMultiTouchControls(true)             // pinch zoom
             setUseDataConnection(true)
             controller.setZoom(11.0)                // ~city/district level
             controller.setCenter(GeoPoint(49.0, 31.5)) // Ukraine, until the first GPS fix
             overlays.add(CopyrightOverlay(this@AirAlertActivity)) // "© OpenStreetMap contributors"
+            // Town names drawn by us ABOVE the alert shading and borders (the tiles' own names sit under them).
+            overlays.add(placeLabels)
             overlays.add(threatsOverlay)
+            // At night the OSM tiles are inverted to a dark navy map, like the factory navigation.
+            if (!Ui.isLight(this@AirAlertActivity)) overlayManager.tilesOverlay.setColorFilter(NIGHT_TILES)
             threatsOverlay.onThreatTap = { showThreat(it) }
             threatsOverlay.onEmptyTap = { callout.hide() }
             threatsOverlay.onDrawn = { followThreat() }
-            // Follow the head unit's day/night theme: at night the OSM tiles are inverted to a
-            // dark navy map (labels stay readable), like the factory navigation's night mode.
-            if (!Ui.isLight(this@AirAlertActivity)) overlayManager.tilesOverlay.setColorFilter(NIGHT_TILES)
         }
 
         banner = TextView(this).apply {
@@ -105,7 +107,7 @@ class AirAlertActivity : Activity() {
 
         callout = ThreatCallout(this) { callout.hide() }
         settingsPanel = buildSettingsPanel()
-        val recenter = filledPill("Моє місце на карті", Ui.BLUE) { recenter() }
+        val recenter = filledPill("Моє місце", Ui.BLUE) { recenter() }
 
         // Factory DiLink layout: a navy side panel on the left, the content (map) on the right.
         val side = LinearLayout(this).apply {
@@ -134,7 +136,12 @@ class AirAlertActivity : Activity() {
             addView(settingsPanel, LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(0, dp(16), 0, 0) })
             addView(legend(), LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(0, dp(10), 0, 0) })
             addView(View(context), LinearLayout.LayoutParams(MATCH, 0, 1f))
-            addView(recenter, LinearLayout.LayoutParams(MATCH, WRAP))
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(tintedPill("Журнал тривог", Ui.textc(context)) { showJournal() },
+                    LinearLayout.LayoutParams(0, WRAP, 1f).apply { setMargins(0, 0, dp(10), 0) })
+                addView(recenter, LinearLayout.LayoutParams(0, WRAP, 1f))
+            }, LinearLayout.LayoutParams(MATCH, WRAP))
         }
 
         setContentView(LinearLayout(this).apply {
@@ -234,9 +241,10 @@ class AirAlertActivity : Activity() {
                 while (i < ring.size) { pts.add(GeoPoint(ring[i + 1], ring[i])); i += 2 }
                 map.overlays.add(0, Polygon().apply {
                     points = pts
-                    fillPaint.color = if (level == "yellow") 0x55F2C230 else 0x55E24A3B
-                    outlinePaint.color = if (level == "yellow") 0xCCE0A800.toInt() else 0xCCFF4D4D.toInt()
-                    outlinePaint.strokeWidth = 1.5f * resources.displayMetrics.density
+                    // A light tint and a clear edge: the map and town names must stay readable under it.
+                    fillPaint.color = if (level == "yellow") 0x1FF2C230 else 0x1FE24A3B
+                    outlinePaint.color = if (level == "yellow") 0xE6E0A800.toInt() else 0xE6FF4D4D.toInt()
+                    outlinePaint.strokeWidth = 2.5f * resources.displayMetrics.density
                     setOnClickListener { _, _, _ -> false }
                 })
             }
@@ -250,7 +258,7 @@ class AirAlertActivity : Activity() {
             while (i < ring.size) { pts.add(GeoPoint(ring[i + 1], ring[i])); i += 2 }
             map.overlays.add(0, Polygon().apply {
                 points = pts
-                fillPaint.color = if (alert) 0x55E24A3B else 0x00000000
+                fillPaint.color = if (alert) 0x1FE24A3B else 0x00000000
                 outlinePaint.color = if (alert) 0xCCFF4D4D.toInt() else border
                 outlinePaint.strokeWidth = (if (alert) 3f else 2f) * resources.displayMetrics.density
                 setOnClickListener { _, _, _ -> false } // taps go through to the threat markers
@@ -351,6 +359,8 @@ class AirAlertActivity : Activity() {
             "Курс" to (t.heading?.let { "$it° (${compass(it)})" } ?: "невідомий"),
             "Оновлено" to (ago(t.updatedMs) ?: "—"),
             "Достовірність" to "$conf, підтверджень: ${t.sourceCount}, ±%.0f км".format(t.uncertaintyKm),
+            t.speedKmh?.let { "Швидкість" to "≈%.0f км/год".format(it) },
+            t.airForce?.let { "Повітряні сили" to it.removePrefix("🏍").trim() },
         )
         val first = callout.threatId != t.id
         callout.show(t.id, t.label, t.explanation, rows)
@@ -361,6 +371,48 @@ class AirAlertActivity : Activity() {
     private fun followThreat() {
         val id = callout.threatId ?: return
         threatsOverlay.positionOf(id)?.let { (x, y) -> callout.pointAt(x, y) }
+    }
+
+    /** Air alerts around the car over the past week, newest first. */
+    private fun showJournal() {
+        val log = ua.zaika.carremote.air.AlertLog.all(applicationContext)
+        val now = System.currentTimeMillis()
+        val week = log.filter { now - it.startMs < 7 * 86_400_000L }
+        val totalMin = week.sumOf { ((it.endMs ?: now) - it.startMs) / 60_000 }
+        val near = week.flatMap { it.nearIds }.toSet().size
+        val f = java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale("uk"))
+        val t = java.text.SimpleDateFormat("HH:mm", java.util.Locale("uk"))
+        lateinit var dialog: android.app.AlertDialog
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(20), dp(24), dp(20))
+            background = rounded(Ui.card(this@AirAlertActivity), 20)
+            addView(TextView(context).apply { text = "Журнал тривог"; setTextColor(Ui.textc(context)); textSize = 22f; typeface = sfSemibold })
+            addView(TextView(context).apply {
+                text = if (week.isEmpty()) "За тиждень тривог біля авто не було."
+                    else "За тиждень: ${week.size} · разом ${totalMin / 60} год ${totalMin % 60} хв · загроз у радіусі: $near"
+                setTextColor(Ui.text2c(context)); textSize = 15f; typeface = sf; setPadding(0, dp(6), 0, dp(12))
+            })
+            log.take(30).forEach { e ->
+                val end = e.endMs?.let { t.format(java.util.Date(it)) } ?: "триває"
+                val mins = ((e.endMs ?: now) - e.startMs) / 60_000
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(4), 0, dp(4))
+                    addView(TextView(context).apply {
+                        text = "${f.format(java.util.Date(e.startMs))}–$end"; setTextColor(Ui.textc(context)); textSize = 15f; typeface = sf
+                    }, LinearLayout.LayoutParams(dp(170), WRAP))
+                    addView(TextView(context).apply {
+                        text = "${ua.zaika.carremote.air.AlertLog.rankName(e.maxRank)} · $mins хв" +
+                            if (e.nearIds.isNotEmpty()) " · у радіусі: ${e.nearIds.size}" else ""
+                        setTextColor(if (e.maxRank >= 2) Ui.RED else Ui.text2c(context)); textSize = 15f; typeface = sf
+                    }, LinearLayout.LayoutParams(0, WRAP, 1f))
+                })
+            }
+            addView(filledPill("Закрити", Ui.BLUE) { dialog.dismiss() }, LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(0, dp(12), 0, 0) })
+        }
+        dialog = android.app.AlertDialog.Builder(this).setView(android.widget.ScrollView(this).apply { addView(box) }).create()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.show()
     }
 
     private fun compass(deg: Int) = listOf("Пн", "ПнСх", "Сх", "ПдСх", "Пд", "ПдЗх", "Зх", "ПнЗх")[((deg % 360 + 22) / 45) % 8]
@@ -376,16 +428,15 @@ class AirAlertActivity : Activity() {
     private companion object {
         const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
+        /** Invert OSM's light tiles into a dark navy night map with bright labels. */
+        val NIGHT_TILES = android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix(floatArrayOf(
+            -0.21f, -0.41f, -0.08f, 0f, 200f,
+            -0.21f, -0.41f, -0.08f, 0f, 212f,
+            -0.21f, -0.41f, -0.08f, 0f, 235f,
+            0f, 0f, 0f, 1f, 0f,
+        )))
         const val RADIUS_MIN = 10
         const val RADIUS_MAX = 100
 
-        /** Invert OSM's light tiles into a dim navy night map (tinted, not pure negative). */
-        val NIGHT_TILES = android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix(floatArrayOf(
-            // Inverted luminance mapped onto a grey-navy ramp: white land → dark navy, black text → light grey.
-            -0.135f, -0.265f, -0.05f, 0f, 135f,
-            -0.135f, -0.265f, -0.05f, 0f, 146f,
-            -0.135f, -0.265f, -0.05f, 0f, 168f,
-            0f, 0f, 0f, 1f, 0f,
-        )))
     }
 }

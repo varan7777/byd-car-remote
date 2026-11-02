@@ -66,6 +66,13 @@ data class AirState(
         else -> 0
     }
 
+    /** The official part of [alarmRank]: 1 yellow, 2 red, 0 none (a nearby threat alone doesn't count). */
+    fun officialRank(): Int = when {
+        regionLevel == "red" || (oblastAlert != null && regionLevel != "yellow") -> 2
+        regionLevel != null -> 1
+        else -> 0
+    }
+
     /** Spoken warning when things get worse, as recorded phrases (see [Speaker]). */
     fun voiceClips(speaker: Speaker): List<String> {
         if (within.isEmpty()) when {
@@ -76,13 +83,16 @@ data class AirState(
             regionLevel != null -> return listOf("tryvoha_rayon")
         }
         val n = nearest ?: return listOf("tryvoha")
-        val km = nearestKm?.roundToInt() ?: return listOf("uvaha", threatClip(n.type))
+        val km = nearestKm?.roundToInt() ?: return listOf("uvaha", threatClip(n))
         val dist = if (km < 1) "poruch" else "km${km.coerceAtMost(100)}"
-        return listOfNotNull("uvaha", threatClip(n.type), dist, "kurs".takeIf { approaching })
+        return listOfNotNull("uvaha", threatClip(n), dist, "kurs".takeIf { approaching })
     }
 
-    private fun threatClip(type: String) =
-        if (type in setOf("uav", "recon", "fpv", "missile", "ballistic", "kab", "mig31k")) "t_$type" else "t_other"
+    private fun threatClip(t: AirThreat) = when {
+        t.jet -> "t_jet"
+        t.type in setOf("uav", "recon", "fpv", "missile", "ballistic", "kab", "mig31k") -> "t_${t.type}"
+        else -> "t_other"
+    }
 
     /** One compact line for the dashboard. */
     fun oneLine(radiusKm: Double): String {
@@ -104,6 +114,31 @@ class AirAlertMonitor(
     private val regions: RegionLocator = RegionLocator(context),
     private val raions: RegionLocator = RegionLocator(context, client, "raions.geojson"),
 ) {
+    /** Positions NEPTUN reported per track (when they changed), for speed when NEPTUN gives no trail. */
+    private val seen = HashMap<String, ArrayDeque<Triple<Double, Double, Long>>>()
+
+    private fun withSpeed(list: List<AirThreat>): List<AirThreat> {
+        val now = System.currentTimeMillis()
+        seen.keys.retainAll(list.map { it.id }.toSet())
+        return list.map { t ->
+            val h = seen.getOrPut(t.id) { ArrayDeque() }
+            val at = t.updatedMs ?: now
+            val last = h.lastOrNull()
+            when {
+                last == null -> h.addLast(Triple(t.lat, t.lon, at))
+                last.first == t.lat && last.second == t.lon -> Unit
+                // One fix a minute is plenty, so 30 points span the 30 minutes speed and trail need.
+                at - last.third >= 60_000 || h.size == 1 -> h.addLast(Triple(t.lat, t.lon, at))
+                else -> { h.removeLast(); h.addLast(Triple(t.lat, t.lon, at)) }
+            }
+            // Age against the newest fix, not the head unit's clock, so the latest point always stays.
+            while (h.size > 30 || (h.size > 1 && h.last().third - h.first().third > 1_800_000)) h.removeFirst()
+            val path = h.map { it.first to it.second }
+            val speed = t.speedKmh ?: AirThreat.steadySpeed(h.toList(), t.uncertaintyKm)
+            t.copy(speedKmh = speed, path = path)
+        }
+    }
+
     suspend fun run(onState: (AirState) -> Unit) {
         while (coroutineContext.isActive) {
             onState(withContext(Dispatchers.IO) { poll() })
@@ -114,7 +149,7 @@ class AirAlertMonitor(
     private fun poll(): AirState {
         val fix = Geo.lastKnown(context)
         return try {
-            val threats = client.threats()
+            val threats = client.threats().let { th -> th.copy(list = withSpeed(th.list)) }
             val all = client.alerts()
             val alerts = all.oblasts
             val alertKeys = alerts.map { it.key }.toSet()

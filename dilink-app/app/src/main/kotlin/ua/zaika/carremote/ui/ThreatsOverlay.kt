@@ -70,6 +70,7 @@ class ThreatsOverlay : Overlay() {
     private val carRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFF1744.toInt(); style = Paint.Style.STROKE }
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
     private val dronePath = Path()
+    private val trailPath = Path()
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow) return
@@ -91,22 +92,21 @@ class ThreatsOverlay : Overlay() {
             proj.toPixels(GeoPoint(hlat, hlon), head)
             val hx = head.x.toFloat(); val hy = head.y.toFloat()
 
-            // Trail: fade from oldest (faint) to the current head (bright).
-            val hist = history[t.id]
-            if (hist != null && hist.isNotEmpty()) {
-                trail.color = color
-                var px = Float.NaN; var py = Float.NaN
-                val n = hist.size
-                hist.forEachIndexed { i, pt ->
-                    proj.toPixels(GeoPoint(pt.lat, pt.lon), seg)
-                    val cx = seg.x.toFloat(); val cy = seg.y.toFloat()
-                    if (!px.isNaN()) {
-                        trail.alpha = (40 + 150 * i / n).coerceAtMost(190)
-                        canvas.drawLine(px, py, cx, cy, trail)
-                    }
-                    px = cx; py = cy
+            // Trail through every position reported in the last 30 min (the service keeps them even
+            // while this screen is closed), smoothed into a curve through the midpoints, ending at the head.
+            val pts = t.path.takeIf { it.size >= 2 } ?: history[t.id]?.map { it.lat to it.lon } ?: emptyList()
+            if (pts.isNotEmpty()) {
+                val xy = pts.map { (la, lo) -> proj.toPixels(GeoPoint(la, lo), seg); seg.x.toFloat() to seg.y.toFloat() } + (hx to hy)
+                trailPath.reset()
+                trailPath.moveTo(xy[0].first, xy[0].second)
+                for (i in 1 until xy.size - 1) {
+                    val (x, y) = xy[i]; val (nx, ny) = xy[i + 1]
+                    trailPath.quadTo(x, y, (x + nx) / 2, (y + ny) / 2)
                 }
-                if (!px.isNaN()) { trail.alpha = 210; canvas.drawLine(px, py, hx, hy, trail) }
+                trailPath.lineTo(hx, hy)
+                trail.color = color
+                trail.alpha = 170
+                canvas.drawPath(trailPath, trail)
             }
 
             // NEPTUN positions arrive late; show how old each one is and fade the stale ones.
@@ -231,9 +231,8 @@ class ThreatsOverlay : Overlay() {
         drawThreat(canvas, kind, cx, cy, null, size)
     }
 
-    /** NEPTUN types a jet Shahed as a plain "uav"; only its title tells it apart. */
-    private fun kindOf(t: AirThreat): String =
-        if (t.type == "uav" && JET.containsMatchIn(t.title + " " + t.explanation)) "jet_uav" else t.type
+    /** NEPTUN types a jet Shahed as a plain "uav"; its title or speed tells it apart ([AirThreat.jet]). */
+    private fun kindOf(t: AirThreat): String = if (t.jet) "jet_uav" else t.type
 
     /** Where the marker of [id] was last drawn, in MapView pixels. */
     fun positionOf(id: String): Pair<Float, Float>? = drawn[id]
@@ -250,7 +249,6 @@ class ThreatsOverlay : Overlay() {
     private companion object {
         const val STALE_MIN = 15
         val KNOWN = setOf("uav", "jet_uav", "recon", "fpv", "missile", "ballistic", "kab", "mig31k")
-        val JET = Regex("реактив|238|герань-3|geran-3", RegexOption.IGNORE_CASE)
         const val MAX_DRIFT_MS = 180_000L   // cap head extrapolation at 3 min between updates
         const val MAX_TRAIL = 40            // trail points kept per track
         const val TRAIL_AGE_MS = 900_000L   // drop trail points older than 15 min

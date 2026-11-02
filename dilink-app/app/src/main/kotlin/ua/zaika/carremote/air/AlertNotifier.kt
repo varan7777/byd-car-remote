@@ -12,9 +12,27 @@ import kotlin.math.roundToInt
 class AlertNotifier {
     private var lastRank = 0
 
+    private var calmSince = 0L
+    private var official = false // this episode had a yellow/red alert, not only a nearby threat
+    private var told = false // a warning went out since the last calm, so the all-clear is worth sending
+
     fun poll(s: AirState?, car: Autoservice): String? {
         if (s == null || s.error != null) return null
         val rank = rank(s)
+        val now = System.currentTimeMillis()
+        if (s.officialRank() > 0) official = true
+        if (rank < lastRank) {
+            // Any step down counts after a few calm minutes, so a drone at the radius edge doesn't
+            // send a new warning (or an all-clear) on every re-entry.
+            if (calmSince == 0L) calmSince = now
+            if (now - calmSince < ua.zaika.carremote.CarRemoteService.CALM_HOLD_MS) return null
+            lastRank = rank; calmSince = 0
+            if (rank > 0) return null
+            val say = told && official
+            told = false; official = false
+            return if (say) "🟢 Відбій тривоги біля авто." else null
+        }
+        calmSince = 0
         val worse = rank > lastRank
         lastRank = rank
         if (!worse) return null
@@ -24,6 +42,7 @@ class AlertNotifier {
         // is empty. Someone sitting inside keeps the car unlocked; a car left behind is locked.
         val locked = car.getInt(Fids.DEV_DOOR_LOCKS, Fids.LOCK_DRIVER) == 2
         if (!locked || ua.zaika.carremote.car.someoneInside(car)) return null
+        told = true
         return text(s)
     }
 
@@ -38,7 +57,12 @@ class AlertNotifier {
         append(levelEmoji(s.regionLevel, s.oblastAlert != null)).append(' ')
         append(levelName(s.regionLevel, s.oblastAlert != null))
         s.oblastAlert?.let { append(": ").append(it.name) }
-        s.within.firstOrNull()?.let { (t, km) -> append("\n⚠️ ${t.label} за ${km.roundToInt()} км від авто") }
+        s.within.firstOrNull()?.let { (t, km) ->
+            append("\n⚠️ ${t.label} за ${km.roundToInt()} км від авто")
+            if (s.approaching) append(", курс на авто")
+            // Both points on one map: where the car stands and where the threat is.
+            s.fix?.let { (la, lo) -> append("\n🗺 https://www.google.com/maps/dir/$la,$lo/${t.lat},${t.lon}") }
+        }
             ?: s.nearest?.let { n -> s.nearestKm?.let { append("\nНайближче: ${n.label} ~${it.roundToInt()} км") } }
         append("\n🚗 Авто стоїть замкнене.")
     }

@@ -60,6 +60,8 @@ class CarRemoteService : Service() {
     // Air-raid / UAV watch (NEPTUN). Runs here so the siren sounds over any foreground app.
     private var airTone: ToneGenerator? = null
     private var airRank = 0
+    private var airCalmSince = 0L
+    private var airOfficial = false // this episode had an official (yellow/red) alert, not only a nearby threat
     private var airSpeaker: Speaker? = null
     private var airAlarmActive = false
     private var airAlertShown: String? = null // oblast name currently shown as a notification
@@ -340,7 +342,23 @@ class CarRemoteService : Service() {
                     airBeep()
                     if (prefs.getBoolean(KEY_VOICE, true)) airSpeaker?.let { it.speak(state.voiceClips(it), alarmVolume()) }
                 }
-                if (state.error == null) airRank = rank
+                if (state.error == null) {
+                    runCatching { ua.zaika.carremote.air.AlertLog.track(applicationContext, state) }
+                    val now = System.currentTimeMillis()
+                    if (state.officialRank() > 0) airOfficial = true
+                    // Any step down counts only after a few calm minutes: a drone hovering at the radius
+                    // edge must not re-beep, re-speak or flip «відбій» on every poll.
+                    if (rank >= airRank) { airCalmSince = 0; airRank = rank }
+                    else {
+                        if (airCalmSince == 0L) airCalmSince = now
+                        if (now - airCalmSince >= CALM_HOLD_MS) {
+                            // «Відбій» is for an official alert that ended; a threat merely leaving the radius isn't one.
+                            if (rank == 0 && airOfficial && prefs.getBoolean(KEY_VOICE, true)) airSpeaker?.speak(listOf("vidbiy"), alarmVolume())
+                            if (rank == 0) airOfficial = false
+                            airRank = rank; airCalmSince = 0
+                        }
+                    }
+                }
                 airAlarmActive = state.isAlarm
                 // A system notification specifically for an official alert in OUR oblast (edge-triggered).
                 val name = state.oblastAlert?.name
@@ -446,6 +464,8 @@ class CarRemoteService : Service() {
         const val KEY_VOICE = "air_voice"
         const val KEY_ALARM_VOLUME = "alarm_volume" // percent
         const val DEFAULT_ALARM_VOLUME = 40
+        /** How long it must stay calm before an alert counts as over (voice, Telegram, journal). */
+        const val CALM_HOLD_MS = 3 * 60_000L
         const val KEY_WIDGET = "widget"
         const val KEY_AUTOMATIONS = "automations"
         const val KEY_TARIFF = "tariff_per_kwh"

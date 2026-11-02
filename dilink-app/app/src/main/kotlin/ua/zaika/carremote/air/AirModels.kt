@@ -21,13 +21,24 @@ data class AirThreat(
     val status: String = "",          // active | ...
     val positionQuality: String = "", // confirmed | estimated | ...
     val confirmedMs: Long? = null,
+    val speedKmh: Double? = null,     // ground speed from NEPTUN's own trail, when it has enough of one
+    val airForce: String? = null,     // the Air Force post about this track saying it's a jet, if any
+    val path: List<Pair<Double, Double>> = emptyList(), // positions reported over the last 30 min, oldest first
+    val source: String = "neptun",    // "neptun" or "airforce" (placed from an Air Force post)
 ) {
+    /**
+     * A jet Shahed (Geran-3). NEPTUN types it as a plain "uav" and only sometimes says so in the
+     * title, so the Air Force channel ([AirForceFeed]) and its speed decide too: a Shahed cruises at 150–200 km/h, the jet one at 500+.
+     */
+    val jet: Boolean get() = type == "uav" &&
+        (airForce != null || JET_TITLE.containsMatchIn(title + " " + explanation) || (speedKmh ?: 0.0) >= JET_KMH)
+
     /** Minutes since NEPTUN last confirmed the position, or null if it gave no time. */
     fun ageMin(now: Long = System.currentTimeMillis()): Int? = updatedMs?.let { ((now - it) / 60_000).toInt().coerceAtLeast(0) }
 
     /** Short label with the gist of the threat type, for the on-screen banner. */
     val label: String get() = when (type) {
-        "uav" -> if (Regex("реактив|238|герань-3", RegexOption.IGNORE_CASE).containsMatchIn(title)) "Реактивний БпЛА" else "БпЛА"
+        "uav" -> if (jet) "Реактивний БпЛА" else "БпЛА"
         "recon" -> "Розвід. БпЛА"
         "fpv" -> "FPV-дрон"
         "missile" -> "Ракета"
@@ -38,6 +49,38 @@ data class AirThreat(
     }
 
     companion object {
+        private val JET_TITLE = Regex("реактив|238|герань-3|geran-3", RegexOption.IGNORE_CASE)
+        private const val JET_KMH = 350.0
+
+        private fun trailSpeed(o: JSONObject, uncertaintyKm: Double): Double? {
+            val tr = o.optJSONArray("trail") ?: return null
+            val pts = (0 until tr.length()).mapNotNull { i ->
+                val p = tr.optJSONObject(i) ?: return@mapNotNull null
+                val t = parseIso(p.optString("t")) ?: return@mapNotNull null
+                Triple(p.optDouble("lat"), p.optDouble("lon"), t)
+            }.filter { !it.first.isNaN() && !it.second.isNaN() }
+            return steadySpeed(pts, uncertaintyKm)
+        }
+
+        /**
+         * Ground speed from (lat, lon, time) fixes, or null when it can't be trusted. NEPTUN positions
+         * are approximate and get re-anchored, so: a base of 6–30 min, a distance well above the
+         * position error, and both halves of the stretch fast — one jump of a fix is not a jet.
+         */
+        fun steadySpeed(points: List<Triple<Double, Double, Long>>, uncertaintyKm: Double): Double? {
+            val pts = points.sortedBy { it.third }
+            val last = pts.lastOrNull() ?: return null
+            val from = pts.firstOrNull { last.third - it.third in 360_000..1_800_000 } ?: return null
+            val mid = pts.filter { it.third > from.third && it.third < last.third }
+                .minByOrNull { kotlin.math.abs(it.third - (from.third + last.third) / 2) } ?: return null
+            fun kmh(a: Triple<Double, Double, Long>, b: Triple<Double, Double, Long>) =
+                Geo.distanceKm(a.first, a.second, b.first, b.second) / ((b.third - a.third) / 3_600_000.0)
+            val km = Geo.distanceKm(from.first, from.second, last.first, last.second)
+            if (km < maxOf(15.0, 3 * uncertaintyKm)) return null
+            val speed = kmh(from, last)
+            return speed.takeIf { kmh(from, mid) >= 0.6 * it && kmh(mid, last) >= 0.6 * it }
+        }
+
         fun parseIso(v: String?): Long? = v?.takeIf { it.isNotBlank() }?.let {
             runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull()
         }
@@ -64,6 +107,7 @@ data class AirThreat(
                 status = o.optString("status", ""),
                 positionQuality = o.optString("positionQuality").ifBlank { o.optString("lifecycle") },
                 confirmedMs = parseIso(o.optString("confirmedAt")),
+                speedKmh = trailSpeed(o, o.optDouble("uncertaintyKm", 0.0)),
             )
         }
     }
