@@ -141,7 +141,19 @@ class AirAlertMonitor(
             sightings = gazetteer?.let { g -> runCatching { AirForceParser.parse(posts, g) }.getOrNull() } ?: emptyList()
         }
         val now = System.currentTimeMillis()
-        return sightings.filter { now - it.atMs < 20 * 60_000 }
+        return sightings.filter { now - it.atMs < lifetimeMs(it) }
+    }
+
+    /**
+     * How long a post's position stays meaningful: a jet or a missile covers 50+ km in five minutes,
+     * so an older position would point the map (and the alarm) at an empty place.
+     */
+    private fun lifetimeMs(s: Sighting): Long = when {
+        s.targetOnly -> 15 * 60_000L
+        s.kind in setOf("missile", "ballistic", "mig31k") -> 5 * 60_000L
+        s.jet -> 8 * 60_000L
+        s.kind == "kab" -> 10 * 60_000L
+        else -> 15 * 60_000L
     }
 
     /**
@@ -170,6 +182,13 @@ class AirAlertMonitor(
             )
         }
         return out
+    }
+
+    /** A position too old to sound the alarm for: 15 min for a Shahed, 5 for anything jet-fast. */
+    private fun stale(t: AirThreat): Boolean {
+        val age = t.updatedMs?.let { System.currentTimeMillis() - it } ?: return false
+        val fast = t.jet || t.type in setOf("missile", "ballistic", "mig31k")
+        return age > (if (fast) 5 else 15) * 60_000L
     }
 
     private fun sameKind(a: String, b: String) = a == b || (a in DRONES && b in DRONES)
@@ -264,7 +283,9 @@ class AirAlertMonitor(
         } ?: false
         // A position is "within" only when it is known well enough: an oblast-wide guess (±40–60 km)
         // must not set off the alarm on its own.
-        val within = ranked.filter { (t, km) -> km <= radiusKm && (t.source == "neptun" || t.uncertaintyKm <= 20) }
+        val within = ranked.filter { (t, km) ->
+            km <= radiusKm && (t.source == "neptun" || t.uncertaintyKm <= 20) && !stale(t)
+        }
         // «Курс на <town>» where the town is inside the radius: warn now, before anyone has a position.
         val targetNear = targets.filter { Geo.distanceKm(lat, lon, it.lat, it.lon) <= radiusKm }.maxByOrNull { it.atMs }
         val oblastKey = regions.keyAt(lat, lon)

@@ -299,7 +299,7 @@ class AirAlertActivity : Activity() {
                 })
             }
             addView(TextView(context).apply {
-                text = "«N хв» — коли оновлено, «ПС» — з каналу Повітряних сил, «×3» — група, пунктирне коло — «курс сюди»."
+                text = "«ПС» — з каналу Повітряних сил, сірий — давні дані, коло — «курс сюди», «×3» — група."
                 setTextColor(Ui.text2c(context)); textSize = 13f; typeface = sf; setPadding(0, dp(6), 0, 0)
             })
         }

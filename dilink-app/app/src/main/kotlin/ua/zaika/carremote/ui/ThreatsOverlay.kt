@@ -74,6 +74,13 @@ class ThreatsOverlay : Overlay() {
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
     private val dronePath = Path()
     private val trailPath = Path()
+    private val backdrop = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xD90B1020.toInt(); style = Paint.Style.FILL }
+
+    /** The colour halfway to grey, fully opaque: how a marker with old data looks. */
+    private fun greyed(c: Int): Int {
+        fun mix(v: Int) = (v + 0x8A) / 2
+        return (0xFF shl 24) or (mix((c shr 16) and 0xFF) shl 16) or (mix((c shr 8) and 0xFF) shl 8) or mix(c and 0xFF)
+    }
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow) return
@@ -119,12 +126,14 @@ class ThreatsOverlay : Overlay() {
 
             // NEPTUN positions arrive late; show how old each one is and fade the stale ones.
             val age = t.ageMin(now)
-            val stale = age != null && age >= STALE_MIN
+            val fast = t.jet || t.type in setOf("missile", "ballistic", "mig31k")
+            val stale = age != null && age >= (if (fast) 5 else STALE_MIN)
             drawn[t.id] = hx to hy
-            dot.color = color
-            dot.alpha = if (stale) 110 else 255
+            // An opaque backdrop so borders and shading never show through the glyph; old data is
+            // drawn greyer, not see-through.
+            canvas.drawCircle(hx, hy, 15f * d, backdrop)
+            dot.color = if (stale) greyed(color) else color
             drawThreat(canvas, kind, hx, hy, t.heading, 14f * d)
-            dot.alpha = 255
             // A group of drones carries its size in the title, e.g. «Група БпЛА (3+)».
             val group = Regex("\\((\\d+\\+?)\\)").find(t.title)?.groupValues?.get(1)
                 ?: if (t.title.contains("Група")) "група" else null
