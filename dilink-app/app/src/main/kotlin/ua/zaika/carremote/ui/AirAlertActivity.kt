@@ -199,8 +199,15 @@ class AirAlertActivity : Activity() {
         callout.threatId?.let { id -> s.all.firstOrNull { it.id == id }?.let { showThreat(it) } ?: callout.hide() }
         threatsOverlay.car = s.fix
         if (!centered && s.fix != null) {
-            map.controller.setCenter(GeoPoint(s.fix.first, s.fix.second))
             centered = true
+            val car = GeoPoint(s.fix.first, s.fix.second)
+            val near = s.nearest
+            // Open on the car and the nearest threat together, so a threat far away isn't off-screen.
+            if (near == null) map.controller.setCenter(car)
+            else map.post {
+                map.zoomToBoundingBox(org.osmdroid.util.BoundingBox.fromGeoPoints(listOf(car, GeoPoint(near.lat, near.lon))), false, dp(80))
+                if (map.zoomLevelDouble > 11.0) map.controller.setZoom(11.0)
+            }
         }
         if (s.alertKeys != shadedKeys) {
             shadedKeys = s.alertKeys
@@ -209,19 +216,23 @@ class AirAlertActivity : Activity() {
         map.invalidate()
     }
 
-    /** Rebuild the red polygons for the oblasts in [shadedKeys] (cheap: a handful at most). */
+    /** Rebuild the oblast borders, shading the ones in [shadedKeys] red. */
     private fun applyShading() {
         if (allShapes.isEmpty()) return
         map.overlays.removeAll { it is Polygon }
-        for (sh in allShapes) if (sh.key in shadedKeys) for (ring in sh.rings) {
+        // Every oblast gets a clear border; the ones under alert are also shaded red.
+        val border = if (Ui.isLight(this)) 0x99404A5C.toInt() else 0x99C8D2E6.toInt()
+        for (sh in allShapes) for (ring in sh.rings) {
+            val alert = sh.key in shadedKeys
             val pts = ArrayList<GeoPoint>(ring.size / 2)
             var i = 0
             while (i < ring.size) { pts.add(GeoPoint(ring[i + 1], ring[i])); i += 2 }
             map.overlays.add(0, Polygon().apply {
                 points = pts
-                fillPaint.color = 0x55E24A3B
-                outlinePaint.color = 0x88FF4D4D.toInt()
-                outlinePaint.strokeWidth = 2f
+                fillPaint.color = if (alert) 0x55E24A3B else 0x00000000
+                outlinePaint.color = if (alert) 0xCCFF4D4D.toInt() else border
+                outlinePaint.strokeWidth = (if (alert) 3f else 2f) * resources.displayMetrics.density
+                setOnClickListener { _, _, _ -> false } // taps go through to the threat markers
             })
         }
         map.invalidate()
