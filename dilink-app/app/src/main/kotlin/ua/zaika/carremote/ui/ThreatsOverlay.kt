@@ -52,6 +52,10 @@ class ThreatsOverlay : Overlay() {
 
     /** Called with the threat whose marker was tapped. */
     var onThreatTap: ((AirThreat) -> Unit)? = null
+    /** Called when the map is tapped away from any marker. */
+    var onEmptyTap: (() -> Unit)? = null
+    /** Called after every redraw, so things pinned to a marker can follow it. */
+    var onDrawn: (() -> Unit)? = null
     private val drawn = HashMap<String, Pair<Float, Float>>() // last drawn marker position per id
 
     private var anchors: Map<String, Anchor> = emptyMap()
@@ -121,6 +125,7 @@ class ThreatsOverlay : Overlay() {
             canvas.drawCircle(x, y, 4f * d, carFill)
             canvas.drawText("ви", x + 13f * d, y + 4f * d, label)
         }
+        onDrawn?.invoke()
     }
 
     /** A small delta-wing drone silhouette (Shahed-like): nose points along the heading. With no
@@ -206,10 +211,14 @@ class ThreatsOverlay : Overlay() {
         else -> 0xFFD0D7E2.toInt()
     }
 
+    /** Where the marker of [id] was last drawn, in MapView pixels. */
+    fun positionOf(id: String): Pair<Float, Float>? = drawn[id]
+
     override fun onSingleTapConfirmed(e: android.view.MotionEvent, mapView: MapView): Boolean {
         val d = mapView.resources.displayMetrics.density
         val hit = threats.mapNotNull { t -> drawn[t.id]?.let { (x, y) -> t to Math.hypot((x - e.x).toDouble(), (y - e.y).toDouble()) } }
-            .filter { it.second <= 32 * d }.minByOrNull { it.second }?.first ?: return false
+            .filter { it.second <= 32 * d }.minByOrNull { it.second }?.first
+        if (hit == null) { onEmptyTap?.invoke(); return false }
         onThreatTap?.invoke(hit)
         return true
     }

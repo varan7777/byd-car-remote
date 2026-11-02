@@ -54,6 +54,7 @@ class AirAlertActivity : Activity() {
     private lateinit var banner: TextView
     private lateinit var settingsPanel: LinearLayout
     private lateinit var radiusLabel: TextView
+    private lateinit var callout: ThreatCallout
 
     private val prefs by lazy { getSharedPreferences("carremote", Context.MODE_PRIVATE) }
     private val regions by lazy { RegionLocator(applicationContext) }
@@ -84,6 +85,8 @@ class AirAlertActivity : Activity() {
             overlays.add(CopyrightOverlay(this@AirAlertActivity)) // "© OpenStreetMap contributors"
             overlays.add(threatsOverlay)
             threatsOverlay.onThreatTap = { showThreat(it) }
+            threatsOverlay.onEmptyTap = { callout.hide() }
+            threatsOverlay.onDrawn = { followThreat() }
             // Follow the head unit's day/night theme: at night the OSM tiles are inverted to a
             // dark navy map (labels stay readable), like the factory navigation's night mode.
             if (!Ui.isLight(this@AirAlertActivity)) overlayManager.tilesOverlay.setColorFilter(NIGHT_TILES)
@@ -97,6 +100,7 @@ class AirAlertActivity : Activity() {
             text = "Завантаження повітряної обстановки…"
         }
 
+        callout = ThreatCallout(this) { callout.hide() }
         settingsPanel = buildSettingsPanel()
         val recenter = filledPill("Моє місце на карті", Ui.BLUE) { recenter() }
 
@@ -136,7 +140,11 @@ class AirAlertActivity : Activity() {
             addView(FrameLayout(context).apply {
                 setPadding(0, dp(12), dp(12), dp(12))
                 clipToPadding = true
-                addView(map, FrameLayout.LayoutParams(MATCH, MATCH))
+                // The callout shares the map's frame, so marker pixels are its pixels too.
+                addView(FrameLayout(context).apply {
+                    addView(map, FrameLayout.LayoutParams(MATCH, MATCH))
+                    addView(callout, FrameLayout.LayoutParams(dp(360), WRAP))
+                }, FrameLayout.LayoutParams(MATCH, MATCH))
             }, LinearLayout.LayoutParams(0, MATCH, 1f))
         })
     }
@@ -187,6 +195,7 @@ class AirAlertActivity : Activity() {
         }
         (banner.background as? android.graphics.drawable.GradientDrawable)?.setColor(c) ?: banner.setBackgroundColor(c)
         threatsOverlay.threats = s.all
+        callout.threatId?.let { id -> s.all.firstOrNull { it.id == id }?.let { showThreat(it) } ?: callout.hide() }
         threatsOverlay.car = s.fix
         if (!centered && s.fix != null) {
             map.controller.setCenter(GeoPoint(s.fix.first, s.fix.second))
@@ -260,55 +269,31 @@ class AirAlertActivity : Activity() {
         }
     }
 
-    /** Everything NEPTUN says about one tracked object, as a DiLink-style card. */
+    /** What NEPTUN says about one tracked object, in a bubble pinned to its marker. */
     private fun showThreat(t: ua.zaika.carremote.air.AirThreat) {
-        val f = java.text.SimpleDateFormat("dd.MM.yyyy HH:mm:ss", java.util.Locale("uk"))
+        val f = java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale("uk"))
         val now = System.currentTimeMillis()
         fun ago(ms: Long?) = ms?.let { val m = ((now - it) / 60_000).coerceAtLeast(0); "${f.format(java.util.Date(it))} (${if (m < 1) "щойно" else "$m хв тому"})" }
         val fix = CarRemoteService.airState?.fix
         val dist = fix?.let { Geo.distanceKm(it.first, it.second, t.lat, t.lon) }
         val conf = when (t.confidence) { "high" -> "висока"; "medium" -> "середня"; "low" -> "низька"; else -> t.confidence }
         val rows = listOfNotNull(
-            "Тип" to "${t.label}${if (t.title.isNotBlank() && t.title != t.label) " (${t.title})" else ""}",
+            t.title.takeIf { it.isNotBlank() && it != t.label }?.let { "Тип" to it },
             "Де" to listOf(t.locality, t.district, t.region).filter { it.isNotBlank() }.joinToString(", ").ifBlank { "—" },
             dist?.let { "Від вас" to "%.0f км".format(it) },
             "Курс" to (t.heading?.let { "$it° (${compass(it)})" } ?: "невідомий"),
             "Оновлено" to (ago(t.updatedMs) ?: "—"),
-            t.confirmedMs?.takeIf { it != t.updatedMs }?.let { "Підтверджено" to (ago(it) ?: "—") },
-            "Достовірність" to conf,
-            "Підтверджень" to "${t.sourceCount}",
-            "Похибка позиції" to "±%.0f км".format(t.uncertaintyKm),
-            t.positionQuality.takeIf { it.isNotBlank() }?.let { "Позиція" to it },
-            t.status.takeIf { it.isNotBlank() }?.let { "Статус" to it },
-            "Координати" to "%.4f, %.4f".format(t.lat, t.lon),
-            "ID" to t.id,
+            "Достовірність" to "$conf, підтверджень: ${t.sourceCount}, ±%.0f км".format(t.uncertaintyKm),
         )
-        lateinit var dialog: android.app.AlertDialog
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(20), dp(24), dp(20))
-            background = rounded(Ui.card(this@AirAlertActivity), 20)
-            addView(TextView(context).apply { text = t.label; setTextColor(Ui.textc(context)); textSize = 22f; typeface = sfSemibold })
-            if (t.explanation.isNotBlank()) addView(TextView(context).apply {
-                text = t.explanation; setTextColor(Ui.text2c(context)); textSize = 15f; typeface = sf; setPadding(0, dp(6), 0, dp(10))
-            })
-            rows.forEach { (k, v) ->
-                addView(LinearLayout(context).apply {
-                    orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(4), 0, dp(4))
-                    addView(TextView(context).apply { text = k; setTextColor(Ui.text2c(context)); textSize = 15f; typeface = sf },
-                        LinearLayout.LayoutParams(dp(170), WRAP))
-                    addView(TextView(context).apply { text = v; setTextColor(Ui.textc(context)); textSize = 15f; typeface = sf },
-                        LinearLayout.LayoutParams(0, WRAP, 1f))
-                })
-            }
-            addView(TextView(context).apply {
-                text = "Джерело: NEPTUN (агрегатор, неофіційні дані)"; setTextColor(Ui.text2c(context)); textSize = 12f; setPadding(0, dp(10), 0, dp(10))
-            })
-            addView(filledPill("Закрити", Ui.BLUE) { dialog.dismiss() }, LinearLayout.LayoutParams(MATCH, WRAP))
-        }
-        dialog = android.app.AlertDialog.Builder(this).setView(android.widget.ScrollView(this).apply { addView(box) }).create()
-        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-        dialog.show()
+        val first = callout.threatId != t.id
+        callout.show(t.id, t.label, t.explanation, rows)
+        if (first) callout.post { followThreat() } // place it before the next map frame
+    }
+
+    /** Keep the bubble's pointer on its marker as the map pans, zooms or the threat moves. */
+    private fun followThreat() {
+        val id = callout.threatId ?: return
+        threatsOverlay.positionOf(id)?.let { (x, y) -> callout.pointAt(x, y) }
     }
 
     private fun compass(deg: Int) = listOf("Пн", "ПнСх", "Сх", "ПдСх", "Пд", "ПдЗх", "Зх", "ПнЗх")[((deg % 360 + 22) / 45) % 8]
