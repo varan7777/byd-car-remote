@@ -9,9 +9,9 @@ import java.io.File
 data class OblastShape(val key: String, val rings: List<DoubleArray>)
 
 /**
- * Maps a GPS point to its oblast using NEPTUN's own oblast polygons, so "alert for my area"
- * works without Google Play services (the head unit has none). The ~160 KB GeoJSON is
- * fetched once and cached on disk; oblast borders are static, so a monthly re-fetch is plenty.
+ * Maps a GPS point to its oblast (or raion) so "alert for my area" works without Google Play
+ * services (the head unit has none). Borders come from OpenStreetMap, bundled in assets/geo with
+ * NEPTUN's keys; NEPTUN's own coarser GeoJSON (cached monthly) is only a fallback.
  *
  * feature.properties.key ("київська") matches the key used by /api/v1/alerts oblasts[].
  */
@@ -59,7 +59,8 @@ class RegionLocator(
     }
 
     private fun load(): List<Pair<String, JSONArray>>? {
-        val json = readCached() ?: fetchAndCache() ?: return null
+        // Accurate borders from OpenStreetMap ship with the app (assets/geo); NEPTUN's coarser file is the fallback.
+        val json = bundled() ?: readCached() ?: fetchAndCache() ?: return null
         return try {
             val arr = json.optJSONArray("features") ?: return null
             val out = ArrayList<Pair<String, JSONArray>>(arr.length())
@@ -80,6 +81,9 @@ class RegionLocator(
             null
         }
     }
+
+    private fun bundled(): JSONObject? =
+        runCatching { JSONObject(context.assets.open("geo/$file").bufferedReader().readText()) }.getOrNull()
 
     private fun cacheFile() = File(context.filesDir, file)
 

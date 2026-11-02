@@ -49,6 +49,9 @@ class ThreatsOverlay : Overlay() {
             field = value
         }
     var car: Pair<Double, Double>? = null
+    /** Air Force «курс на X» with no position yet: drawn as a dashed target ring at X. */
+    var targets: List<ua.zaika.carremote.air.Sighting> = emptyList()
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
 
     /** Called with the threat whose marker was tapped. */
     var onThreatTap: ((AirThreat) -> Unit)? = null
@@ -121,7 +124,18 @@ class ThreatsOverlay : Overlay() {
             val group = Regex("\\((\\d+\\+?)\\)").find(t.title)?.groupValues?.get(1)
                 ?: if (t.title.contains("Група")) "група" else null
             group?.let { canvas.drawText("×$it", hx + 17f * d, hy - 6f * d, label) }
-            if (age != null) canvas.drawText(if (age < 1) "щойно" else "$age хв", hx + 17f * d, hy + 18f * d, label)
+            val tag = if (t.source == "airforce") "ПС · " else ""
+            if (age != null) canvas.drawText(tag + if (age < 1) "щойно" else "$age хв", hx + 17f * d, hy + 18f * d, label)
+        }
+
+        for (tg in targets) {
+            proj.toPixels(GeoPoint(tg.lat, tg.lon), head)
+            val x = head.x.toFloat(); val y = head.y.toFloat()
+            ring.color = colorFor(if (tg.jet && tg.kind == "uav") "jet_uav" else tg.kind)
+            ring.strokeWidth = 2.5f * d
+            ring.pathEffect = android.graphics.DashPathEffect(floatArrayOf(5f * d, 4f * d), 0f)
+            canvas.drawCircle(x, y, 14f * d, ring)
+            canvas.drawText("курс сюди", x + 17f * d, y + 4f * d, label)
         }
 
         car?.let { (lat, lon) ->

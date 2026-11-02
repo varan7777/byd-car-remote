@@ -207,6 +207,7 @@ class AirAlertActivity : Activity() {
         }
         (banner.background as? android.graphics.drawable.GradientDrawable)?.setColor(c) ?: banner.setBackgroundColor(c)
         threatsOverlay.threats = s.all
+        threatsOverlay.targets = s.targets
         callout.threatId?.let { id -> s.all.firstOrNull { it.id == id }?.let { showThreat(it) } ?: callout.hide() }
         threatsOverlay.car = s.fix
         if (!centered && s.fix != null) {
@@ -243,14 +244,17 @@ class AirAlertActivity : Activity() {
                     points = pts
                     // A light tint and a clear edge: the map and town names must stay readable under it.
                     fillPaint.color = if (level == "yellow") 0x1FF2C230 else 0x1FE24A3B
-                    outlinePaint.color = if (level == "yellow") 0xE6E0A800.toInt() else 0xE6FF4D4D.toInt()
-                    outlinePaint.strokeWidth = 2.5f * resources.displayMetrics.density
+                    // Raion edges thin and dashed, so they don't read as oblast borders.
+                    outlinePaint.color = if (level == "yellow") 0xCCE0A800.toInt() else 0xCCFF4D4D.toInt()
+                    outlinePaint.strokeWidth = 1.5f * resources.displayMetrics.density
+                    outlinePaint.pathEffect = android.graphics.DashPathEffect(
+                        floatArrayOf(6f * resources.displayMetrics.density, 4f * resources.displayMetrics.density), 0f)
                     setOnClickListener { _, _, _ -> false }
                 })
             }
         }
         // Every oblast gets a clear border; the ones under alert are also shaded red.
-        val border = if (Ui.isLight(this)) 0x99404A5C.toInt() else 0x99C8D2E6.toInt()
+        val border = if (Ui.isLight(this)) 0xCC2A3344.toInt() else 0xCCDDE4F0.toInt()
         for (sh in allShapes) for (ring in sh.rings) {
             val alert = sh.key in shadedKeys
             val pts = ArrayList<GeoPoint>(ring.size / 2)
@@ -260,7 +264,7 @@ class AirAlertActivity : Activity() {
                 points = pts
                 fillPaint.color = if (alert) 0x1FE24A3B else 0x00000000
                 outlinePaint.color = if (alert) 0xCCFF4D4D.toInt() else border
-                outlinePaint.strokeWidth = (if (alert) 3f else 2f) * resources.displayMetrics.density
+                outlinePaint.strokeWidth = (if (alert) 3.5f else 2.5f) * resources.displayMetrics.density
                 setOnClickListener { _, _, _ -> false } // taps go through to the threat markers
             })
         }
@@ -295,7 +299,7 @@ class AirAlertActivity : Activity() {
                 })
             }
             addView(TextView(context).apply {
-                text = "«N хв» — коли оновлено, «×3» — група, хвіст — шлях."
+                text = "«N хв» — коли оновлено, «ПС» — з каналу Повітряних сил, «×3» — група, пунктирне коло — «курс сюди»."
                 setTextColor(Ui.text2c(context)); textSize = 13f; typeface = sf; setPadding(0, dp(6), 0, 0)
             })
         }

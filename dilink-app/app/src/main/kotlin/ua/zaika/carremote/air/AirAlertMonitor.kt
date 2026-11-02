@@ -23,6 +23,8 @@ data class AirState(
     val alertKeys: Set<String> = emptySet(),     // keys of all oblasts under alert, for shading
     val regionLevel: String? = null,             // "red" | "yellow" for our raion or oblast, null when calm
     val raionLevels: Map<String, String> = emptyMap(), // raion key → level, for shading the map
+    val targets: List<Sighting> = emptyList(),   // Air Force «курс на X» with no known position: X, for the map
+    val targetNear: Sighting? = null,            // such a target inside the alarm radius
 ) {
     /** Worth a beep and a red banner: official siren for our oblast, or a threat within radius. */
     val isAlarm: Boolean get() = oblastAlert != null || within.isNotEmpty()
@@ -60,7 +62,7 @@ data class AirState(
 
     /** How bad it is around the car: 0 calm, 1 yellow (or another official level), 2 red, 3 a threat in the radius. */
     fun alarmRank(): Int = when {
-        within.isNotEmpty() -> 3
+        within.isNotEmpty() || targetNear != null -> 3
         regionLevel == "red" || (oblastAlert != null && regionLevel != "yellow") -> 2
         regionLevel != null -> 1
         else -> 0
@@ -82,15 +84,18 @@ data class AirState(
             regionLevel == "yellow" -> return listOf("zhovta")
             regionLevel != null -> return listOf("tryvoha_rayon")
         }
+        if (within.isEmpty()) targetNear?.let { t -> return listOf("uvaha", threatClip(t.kind, t.jet), "kurs") }
         val n = nearest ?: return listOf("tryvoha")
         val km = nearestKm?.roundToInt() ?: return listOf("uvaha", threatClip(n))
         val dist = if (km < 1) "poruch" else "km${km.coerceAtMost(100)}"
         return listOfNotNull("uvaha", threatClip(n), dist, "kurs".takeIf { approaching })
     }
 
-    private fun threatClip(t: AirThreat) = when {
-        t.jet -> "t_jet"
-        t.type in setOf("uav", "recon", "fpv", "missile", "ballistic", "kab", "mig31k") -> "t_${t.type}"
+    private fun threatClip(t: AirThreat) = threatClip(t.type, t.jet)
+
+    private fun threatClip(type: String, jet: Boolean) = when {
+        jet && type == "uav" -> "t_jet"
+        type in setOf("uav", "recon", "fpv", "missile", "ballistic", "kab", "mig31k") -> "t_$type"
         else -> "t_other"
     }
 
@@ -106,6 +111,8 @@ data class AirState(
  * Polls NEPTUN and turns it into an [AirState] relative to the car's current position.
  * Runs on the caller's coroutine (do it on a background dispatcher); cancel to stop.
  */
+private val DRONES = setOf("uav", "recon", "fpv")
+
 class AirAlertMonitor(
     private val context: Context,
     @Volatile var radiusKm: Double = 40.0,
@@ -116,6 +123,56 @@ class AirAlertMonitor(
 ) {
     /** Positions NEPTUN reported per track (when they changed), for speed when NEPTUN gives no trail. */
     private val seen = HashMap<String, ArrayDeque<Triple<Double, Double, Long>>>()
+
+    /** The Air Force channel: first-hand, minutes ahead of NEPTUN, and it names jet drones. */
+    private val airForce = AirForceFeed()
+    private val gazetteer by lazy {
+        runCatching { Gazetteer.parse(context.assets.open("geo/places.tsv").bufferedReader().readText()) }.getOrNull()
+    }
+    private var parsedFrom: List<AirForceParser.Post>? = null
+    private var sightings: List<Sighting> = emptyList()
+
+    /** Air Force sightings from the last 20 minutes (re-parsed only when new posts arrive). */
+    private fun airForceSightings(): List<Sighting> {
+        airForce.refreshAsync()
+        val posts = airForce.posts
+        if (posts !== parsedFrom) {
+            parsedFrom = posts
+            sightings = gazetteer?.let { g -> runCatching { AirForceParser.parse(posts, g) }.getOrNull() } ?: emptyList()
+        }
+        val now = System.currentTimeMillis()
+        return sightings.filter { now - it.atMs < 20 * 60_000 }
+    }
+
+    /**
+     * NEPTUN tracks plus Air Force sightings. A sighting that matches a NEPTUN track of the same kind
+     * nearby enriches it (jet, the post's words) instead of doubling it; the rest are tracks of their own.
+     */
+    private fun merge(neptun: List<AirThreat>, af: List<Sighting>): List<AirThreat> {
+        val out = neptun.toMutableList()
+        for (s in af.filter { !it.targetOnly }.sortedByDescending { it.atMs }) {
+            val i = out.indexOfFirst { t ->
+                t.source == "neptun" && sameKind(t.type, s.kind) &&
+                    Geo.distanceKm(t.lat, t.lon, s.lat, s.lon) <= maxOf(30.0, s.uncertaintyKm)
+            }
+            if (i >= 0) {
+                val t = out[i]
+                if (t.airForce == null) out[i] = t.copy(airForce = s.text.takeIf { s.jet } ?: t.airForce,
+                    explanation = t.explanation.ifBlank { s.text })
+                continue
+            }
+            out += AirThreat(
+                id = "af:${s.id}", type = s.kind, title = if (s.jet) "Реактивний БпЛА" else "",
+                region = "", locality = s.placeName, lat = s.lat, lon = s.lon, heading = s.headingDeg,
+                confidence = if (s.uncertaintyKm <= 15) "medium" else "low", sourceCount = 1,
+                uncertaintyKm = s.uncertaintyKm, explanation = s.text, updatedMs = s.atMs,
+                positionQuality = "Повітряні сили", airForce = s.text.takeIf { s.jet }, source = "airforce",
+            )
+        }
+        return out
+    }
+
+    private fun sameKind(a: String, b: String) = a == b || (a in DRONES && b in DRONES)
 
     private fun withSpeed(list: List<AirThreat>): List<AirThreat> {
         val now = System.currentTimeMillis()
@@ -148,39 +205,43 @@ class AirAlertMonitor(
 
     private fun poll(): AirState {
         val fix = Geo.lastKnown(context)
-        return try {
-            val threats = client.threats().let { th -> th.copy(list = withSpeed(th.list)) }
-            val all = client.alerts()
-            val alerts = all.oblasts
-            val alertKeys = alerts.map { it.key }.toSet()
-            val raionLevels = all.raions.associate { it.key to it.level }
-            if (fix == null) {
-                AirState(null, null, null, false, emptyList(), null, threats.list.size, threats.serverTime,
-                    "немає GPS-координат авто", all = threats.list, alertKeys = alertKeys, raionLevels = raionLevels)
-            } else {
-                val (lat, lon) = fix
-                val ranked = threats.list
-                    .map { it to Geo.distanceKm(lat, lon, it.lat, it.lon) }
-                    .sortedBy { it.second }
-                val nearest = ranked.firstOrNull()
-                val approaching = nearest?.let { (t, _) ->
-                    t.heading?.let { h ->
-                        Geo.angleDiff(Geo.bearingDeg(t.lat, t.lon, lat, lon), h.toDouble()) < 60
-                    } ?: false
-                } ?: false
-                val within = ranked.filter { it.second <= radiusKm }
-                val oblastKey = regions.keyAt(lat, lon)
-                val oblastAlert = oblastKey?.let { k -> alerts.firstOrNull { it.key == k } }
-                val raionAlert = raions.keyAt(lat, lon)?.let { k -> all.raions.firstOrNull { it.key == k } }
-                val levels = listOfNotNull(oblastAlert?.level, raionAlert?.level)
-                val regionLevel = when { "red" in levels -> "red"; "yellow" in levels -> "yellow"; else -> null }
-                AirState(fix, nearest?.first, nearest?.second, approaching, within, oblastAlert,
-                    threats.list.size, threats.serverTime, null, all = threats.list, alertKeys = alertKeys,
-                    regionLevel = regionLevel, raionLevels = raionLevels)
-            }
-        } catch (e: Exception) {
-            AirState(fix, null, null, false, emptyList(), null, 0, null,
-                "нема зв'язку з NEPTUN (${e.message ?: e.javaClass.simpleName})")
+        val af = runCatching { airForceSightings() }.getOrDefault(emptyList())
+        // NEPTUN and the Air Force channel are independent: one failing doesn't silence the other.
+        val neptun = runCatching { client.threats() }
+        val all = runCatching { client.alerts() }.getOrNull()
+        if (neptun.isFailure && all == null && af.isEmpty()) {
+            val e = neptun.exceptionOrNull()
+            return AirState(fix, null, null, false, emptyList(), null, 0, null,
+                "нема зв'язку з NEPTUN (${e?.message ?: e?.javaClass?.simpleName})")
         }
+        val list = withSpeed(merge(neptun.getOrNull()?.list ?: emptyList(), af))
+        val serverTime = neptun.getOrNull()?.serverTime
+        val alerts = all?.oblasts ?: emptyList()
+        val alertKeys = alerts.map { it.key }.toSet()
+        val raionLevels = all?.raions?.associate { it.key to it.level } ?: emptyMap()
+        val targets = af.filter { it.targetOnly }
+        if (fix == null) {
+            return AirState(null, null, null, false, emptyList(), null, list.size, serverTime,
+                "немає GPS-координат авто", all = list, alertKeys = alertKeys, raionLevels = raionLevels, targets = targets)
+        }
+        val (lat, lon) = fix
+        val ranked = list.map { it to Geo.distanceKm(lat, lon, it.lat, it.lon) }.sortedBy { it.second }
+        val nearest = ranked.firstOrNull()
+        val approaching = nearest?.let { (t, _) ->
+            t.heading?.let { h -> Geo.angleDiff(Geo.bearingDeg(t.lat, t.lon, lat, lon), h.toDouble()) < 60 } ?: false
+        } ?: false
+        // A position is "within" only when it is known well enough: an oblast-wide guess (±40–60 km)
+        // must not set off the alarm on its own.
+        val within = ranked.filter { (t, km) -> km <= radiusKm && (t.source == "neptun" || t.uncertaintyKm <= 20) }
+        // «Курс на <town>» where the town is inside the radius: warn now, before anyone has a position.
+        val targetNear = targets.filter { Geo.distanceKm(lat, lon, it.lat, it.lon) <= radiusKm }.maxByOrNull { it.atMs }
+        val oblastKey = regions.keyAt(lat, lon)
+        val oblastAlert = oblastKey?.let { k -> alerts.firstOrNull { it.key == k } }
+        val raionAlert = raions.keyAt(lat, lon)?.let { k -> all?.raions?.firstOrNull { it.key == k } }
+        val levels = listOfNotNull(oblastAlert?.level, raionAlert?.level)
+        val regionLevel = when { "red" in levels -> "red"; "yellow" in levels -> "yellow"; else -> null }
+        return AirState(fix, nearest?.first, nearest?.second, approaching, within, oblastAlert,
+            list.size, serverTime, null, all = list, alertKeys = alertKeys,
+            regionLevel = regionLevel, raionLevels = raionLevels, targets = targets, targetNear = targetNear)
     }
 }
