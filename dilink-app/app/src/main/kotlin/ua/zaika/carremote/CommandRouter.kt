@@ -42,12 +42,18 @@ class CommandRouter(
 
         val text = input.trim()
         val parts = text.split(Regex("\\s+"))
+        // Buttons dropped from the keyboard can still be tapped on an old one: answer and refresh it.
+        when (text) {
+            "🏓 Пінг" -> return Reply(status(), ReplyKeyboard(MAIN_LABELS))
+            "⏸ Зупинити зарядку", "⚡ Почати зарядку" ->
+                return menu("Кнопки зарядки прибрано: на цьому авто вони не працюють.")
+        }
         // A reply-keyboard tap arrives as the label; everything else is a typed/slash command.
         val token = (BUTTON_ID[text] ?: parts[0]).substringBefore('@').lowercase()
         return when (token) {
             "/start", "/help", "menu" -> menu(HELP)
-            "/status", "status" -> Reply(status())
-            "/ping", "ping" -> Reply("pong — авто на зв'язку")
+            // Пінг is folded into Статус: a status reply already proves the car is online.
+            "/status", "status", "/ping", "ping" -> Reply(status())
             "/parked", "parked" -> parkedPreview()
             "/probe" -> probe(parts.drop(1))
             "/setlow" -> Reply(setLow(parts.getOrNull(1)?.toIntOrNull()))
@@ -234,7 +240,7 @@ class CommandRouter(
 
         // Single source for the persistent keyboard and the label → action lookup.
         val BUTTONS: List<List<Pair<String, String>>> = listOf(
-            listOf("📊 Статус" to "status", "🏓 Пінг" to "ping"),
+            listOf("📊 Статус" to "status", "🌬 Очистити повітря" to "clean_air"),
             listOf("❄️ Клімат ON" to "climate_on", "⭕ Клімат OFF" to "climate_off"),
             listOf("🌡 −" to "temp_down", "🌡 +" to "temp_up"),
             listOf("🔒 Замкнути" to "lock", "🔓 Відімкнути" to "unlock"),
@@ -242,8 +248,6 @@ class CommandRouter(
             listOf("🪟 Вікна відкр." to "windows_open", "🪟 Вікна закр." to "windows_close"),
             listOf("☀️ Люк відкр." to "sunroof_open", "☀️ Люк закр." to "sunroof_close"),
             listOf("🧳 Багажник відкр." to "trunk_open", "🧳 Багажник закр." to "trunk_close"),
-            listOf("🌬 Очистити повітря" to "clean_air"),
-            listOf("⏸ Зупинити зарядку" to "charge_stop", "⚡ Почати зарядку" to "charge_start"),
             listOf("📍 Знайти авто" to "findcar"),
             listOf("🅿️ Стан на стоянці" to "parked", "🪫 Поріг заряду" to "setlow_menu"),
             listOf("🌙 Тихий режим" to "quiet", "☀️ Екран увімкнути" to "quiet_off"),
@@ -252,6 +256,6 @@ class CommandRouter(
         val BUTTON_ID: Map<String, String> = BUTTONS.flatten().associate { it.first to it.second }
 
         const val HELP = "Car Remote — кнопки відкриваються квадратиком біля поля вводу.\n\n" +
-            "Команди: /status, /ping, /parked, /setlow <%>, /probe <dev> <fid>"
+            "Команди: /status, /parked, /setlow <%>, /probe <dev> <fid>"
     }
 }
