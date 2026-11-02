@@ -24,6 +24,7 @@ data class AirThreat(
     val speedKmh: Double? = null,     // ground speed from NEPTUN's own trail, when it has enough of one
     val airForce: String? = null,     // the Air Force post about this track saying it's a jet, if any
     val path: List<Pair<Double, Double>> = emptyList(), // positions reported over the last 30 min, oldest first
+    val trail: List<Triple<Double, Double, Long>> = emptyList(), // NEPTUN's own earlier fixes (lat, lon, time)
     val source: String = "neptun",    // "neptun" or "airforce" (placed from an Air Force post)
 ) {
     /**
@@ -52,14 +53,13 @@ data class AirThreat(
         private val JET_TITLE = Regex("реактив|238|герань-3|geran-3", RegexOption.IGNORE_CASE)
         private const val JET_KMH = 350.0
 
-        private fun trailSpeed(o: JSONObject, uncertaintyKm: Double): Double? {
-            val tr = o.optJSONArray("trail") ?: return null
-            val pts = (0 until tr.length()).mapNotNull { i ->
+        private fun trailPoints(o: JSONObject): List<Triple<Double, Double, Long>> {
+            val tr = o.optJSONArray("trail") ?: return emptyList()
+            return (0 until tr.length()).mapNotNull { i ->
                 val p = tr.optJSONObject(i) ?: return@mapNotNull null
                 val t = parseIso(p.optString("t")) ?: return@mapNotNull null
                 Triple(p.optDouble("lat"), p.optDouble("lon"), t)
-            }.filter { !it.first.isNaN() && !it.second.isNaN() }
-            return steadySpeed(pts, uncertaintyKm)
+            }.filter { !it.first.isNaN() && !it.second.isNaN() }.sortedBy { it.third }
         }
 
         /**
@@ -107,7 +107,8 @@ data class AirThreat(
                 status = o.optString("status", ""),
                 positionQuality = o.optString("positionQuality").ifBlank { o.optString("lifecycle") },
                 confirmedMs = parseIso(o.optString("confirmedAt")),
-                speedKmh = trailSpeed(o, o.optDouble("uncertaintyKm", 0.0)),
+                speedKmh = steadySpeed(trailPoints(o), o.optDouble("uncertaintyKm", 0.0)),
+                trail = trailPoints(o),
             )
         }
     }

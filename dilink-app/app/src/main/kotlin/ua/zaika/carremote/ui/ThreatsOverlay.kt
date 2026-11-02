@@ -100,13 +100,18 @@ class ThreatsOverlay : Overlay() {
             val pts = t.path.takeIf { it.size >= 2 } ?: history[t.id]?.map { it.lat to it.lon } ?: emptyList()
             if (pts.isNotEmpty()) {
                 val xy = pts.map { (la, lo) -> proj.toPixels(GeoPoint(la, lo), seg); seg.x.toFloat() to seg.y.toFloat() } + (hx to hy)
+                // Catmull-Rom spline through every fix: a smooth curve that passes through each
+                // reported position, so a turning drone leaves a curved trail.
                 trailPath.reset()
                 trailPath.moveTo(xy[0].first, xy[0].second)
-                for (i in 1 until xy.size - 1) {
-                    val (x, y) = xy[i]; val (nx, ny) = xy[i + 1]
-                    trailPath.quadTo(x, y, (x + nx) / 2, (y + ny) / 2)
+                for (i in 0 until xy.size - 1) {
+                    val p0 = xy[maxOf(i - 1, 0)]; val p1 = xy[i]; val p2 = xy[i + 1]; val p3 = xy[minOf(i + 2, xy.size - 1)]
+                    trailPath.cubicTo(
+                        p1.first + (p2.first - p0.first) / 6, p1.second + (p2.second - p0.second) / 6,
+                        p2.first - (p3.first - p1.first) / 6, p2.second - (p3.second - p1.second) / 6,
+                        p2.first, p2.second,
+                    )
                 }
-                trailPath.lineTo(hx, hy)
                 trail.color = color
                 trail.alpha = 170
                 canvas.drawPath(trailPath, trail)

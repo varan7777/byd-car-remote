@@ -174,11 +174,41 @@ class AirAlertMonitor(
 
     private fun sameKind(a: String, b: String) = a == b || (a in DRONES && b in DRONES)
 
+    @Volatile private var dirty = false
+    private val historyFile = java.io.File(context.filesDir, "track_history.json")
+
+    /** History survives restarts and sleep (the head unit kills us often), so trails keep their shape. */
+    private fun loadHistory() = runCatching {
+        if (!historyFile.exists() || System.currentTimeMillis() - historyFile.lastModified() > 3_600_000) return@runCatching
+        val o = org.json.JSONObject(historyFile.readText())
+        for (id in o.keys()) {
+            val a = o.getJSONArray(id)
+            seen[id] = ArrayDeque((0 until a.length()).map { i ->
+                val p = a.getJSONArray(i); Triple(p.getDouble(0), p.getDouble(1), p.getLong(2))
+            })
+        }
+    }
+
+    private fun saveHistory() = runCatching {
+        if (!dirty) return@runCatching
+        dirty = false
+        val o = org.json.JSONObject()
+        seen.forEach { (id, h) -> o.put(id, org.json.JSONArray(h.map { org.json.JSONArray(listOf(it.first, it.second, it.third)) })) }
+        val tmp = java.io.File(historyFile.path + ".tmp")
+        tmp.writeText(o.toString()); tmp.renameTo(historyFile)
+    }
+
+    init { loadHistory() }
+
     private fun withSpeed(list: List<AirThreat>): List<AirThreat> {
         val now = System.currentTimeMillis()
         seen.keys.retainAll(list.map { it.id }.toSet())
         return list.map { t ->
             val h = seen.getOrPut(t.id) { ArrayDeque() }
+            // NEPTUN's own earlier fixes fill in what we didn't see (before we started, or while asleep).
+            t.trail.filter { p -> h.none { kotlin.math.abs(it.third - p.third) < 30_000 } }
+                .forEach { h.addLast(it) }
+            if (t.trail.isNotEmpty()) { val sorted = h.sortedBy { it.third }; h.clear(); h.addAll(sorted) }
             val at = t.updatedMs ?: now
             val last = h.lastOrNull()
             when {
@@ -191,6 +221,7 @@ class AirAlertMonitor(
             // Age against the newest fix, not the head unit's clock, so the latest point always stays.
             while (h.size > 30 || (h.size > 1 && h.last().third - h.first().third > 1_800_000)) h.removeFirst()
             val path = h.map { it.first to it.second }
+            dirty = true
             val speed = t.speedKmh ?: AirThreat.steadySpeed(h.toList(), t.uncertaintyKm)
             t.copy(speedKmh = speed, path = path)
         }
@@ -215,6 +246,7 @@ class AirAlertMonitor(
                 "нема зв'язку з NEPTUN (${e?.message ?: e?.javaClass?.simpleName})")
         }
         val list = withSpeed(merge(neptun.getOrNull()?.list ?: emptyList(), af))
+        saveHistory()
         val serverTime = neptun.getOrNull()?.serverTime
         val alerts = all?.oblasts ?: emptyList()
         val alertKeys = alerts.map { it.key }.toSet()
