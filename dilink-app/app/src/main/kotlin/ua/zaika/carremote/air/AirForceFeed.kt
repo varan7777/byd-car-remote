@@ -45,7 +45,7 @@ class AirForceFeed(private val url: String = "https://t.me/s/kpszsu") {
         private val TEXT = Regex("""class="tgme_widget_message_text js-message_text"[^>]*>(.*?)</div>""", RegexOption.DOT_MATCHES_ALL)
         private val TIME = Regex("""<time datetime="([^"]+)"""")
 
-        /** Plain-text posts from the preview page, oldest first, within the last hour. */
+        /** Plain-text posts from the preview page, oldest first, within the last three hours. */
         fun parse(html: String, now: Long): List<AirForceParser.Post> {
             val starts = BLOCK.findAll(html).toList()
             return starts.mapIndexedNotNull { i, m ->
@@ -53,7 +53,8 @@ class AirForceFeed(private val url: String = "https://t.me/s/kpszsu") {
                 val text = TEXT.find(block)?.groupValues?.get(1) ?: return@mapIndexedNotNull null
                 val at = TIME.find(block)?.groupValues?.get(1)?.replace(Regex("\\+00:00$"), "Z")
                     ?.let { AirThreat.parseIso(it) } ?: return@mapIndexedNotNull null
-                if (now - at > 60 * 60_000) return@mapIndexedNotNull null
+                // Generous on purpose: the head unit's clock may be off; the monitor ages posts by NEPTUN's clock.
+                if (now - at > 3 * 3_600_000) return@mapIndexedNotNull null
                 // Html.fromHtml turns <br> into line breaks itself (a literal \n would collapse to a space).
                 val plain = android.text.Html.fromHtml(text, android.text.Html.FROM_HTML_MODE_LEGACY).toString().trim()
                 AirForceParser.Post(m.groupValues[1], at, plain)

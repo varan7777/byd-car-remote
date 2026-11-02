@@ -21,6 +21,7 @@ class AlertNotifier {
         val rank = rank(s)
         val now = System.currentTimeMillis()
         if (s.officialRank() > 0) official = true
+        if (rank < lastRank && s.alertsUnknown) { calmSince = 0; return null } // can't tell it's calm
         if (rank < lastRank) {
             // Any step down counts after a few calm minutes, so a drone at the radius edge doesn't
             // send a new warning (or an all-clear) on every re-entry.

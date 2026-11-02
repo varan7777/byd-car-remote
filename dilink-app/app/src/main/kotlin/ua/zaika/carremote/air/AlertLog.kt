@@ -63,6 +63,8 @@ object AlertLog {
             if (open == null) list.add(Entry(now, null, rank, near, now))
             else list[list.indexOf(open)] = open.copy(maxRank = maxOf(open.maxRank, rank), nearIds = open.nearIds + near, lastMs = now)
             changed = true
+        } else if (open != null && s.alertsUnknown) {
+            list[list.indexOf(open)] = open.copy(lastMs = now); changed = true // unknown isn't calm
         } else if (open != null && now - open.lastMs >= ua.zaika.carremote.CarRemoteService.CALM_HOLD_MS) {
             list[list.indexOf(open)] = open.copy(endMs = open.lastMs); changed = true
         }

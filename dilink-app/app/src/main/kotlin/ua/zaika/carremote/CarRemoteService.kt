@@ -349,6 +349,7 @@ class CarRemoteService : Service() {
                     // Any step down counts only after a few calm minutes: a drone hovering at the radius
                     // edge must not re-beep, re-speak or flip «відбій» on every poll.
                     if (rank >= airRank) { airCalmSince = 0; airRank = rank }
+                    else if (state.alertsUnknown) airCalmSince = 0 // can't tell it's calm: never step down
                     else {
                         if (airCalmSince == 0L) airCalmSince = now
                         if (now - airCalmSince >= CALM_HOLD_MS) {
@@ -361,8 +362,9 @@ class CarRemoteService : Service() {
                 }
                 airAlarmActive = state.isAlarm
                 // A system notification specifically for an official alert in OUR oblast (edge-triggered).
+                // Not touched while the official alerts are unknown, so an outage doesn't cancel and re-pop it.
                 val name = state.oblastAlert?.name
-                if (name != airAlertShown) {
+                if (state.error == null && !state.alertsUnknown && name != airAlertShown) {
                     state.oblastAlert?.let { showAirAlert(it) }
                         ?: getSystemService(NotificationManager::class.java).cancel(AIR_NOTIFICATION_ID)
                     airAlertShown = name
