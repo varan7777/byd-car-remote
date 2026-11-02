@@ -59,6 +59,7 @@ class CarRemoteService : Service() {
 
     // Air-raid / UAV watch (NEPTUN). Runs here so the siren sounds over any foreground app.
     private var airTone: ToneGenerator? = null
+    private var airRank = 0
     private var airSpeaker: Speaker? = null
     private var airAlarmActive = false
     private var airAlertShown: String? = null // oblast name currently shown as a notification
@@ -333,10 +334,13 @@ class CarRemoteService : Service() {
         scope.launch {
             monitor.run { state ->
                 airState = state
-                if (state.isAlarm && !airAlarmActive) {
+                // Sound on every step for the worse: yellow in our raion, red, a threat inside the radius.
+                val rank = state.alarmRank()
+                if (rank > airRank) {
                     airBeep()
                     if (prefs.getBoolean(KEY_VOICE, true)) airSpeaker?.let { it.speak(state.voiceClips(it), alarmVolume()) }
                 }
+                if (state.error == null) airRank = rank
                 airAlarmActive = state.isAlarm
                 // A system notification specifically for an official alert in OUR oblast (edge-triggered).
                 val name = state.oblastAlert?.name

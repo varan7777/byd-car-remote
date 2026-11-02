@@ -58,9 +58,12 @@ class AirAlertActivity : Activity() {
 
     private val prefs by lazy { getSharedPreferences("carremote", Context.MODE_PRIVATE) }
     private val regions by lazy { RegionLocator(applicationContext) }
+    private val raions by lazy { RegionLocator(applicationContext, ua.zaika.carremote.air.NeptunClient(), "raions.geojson") }
 
     private var allShapes: List<OblastShape> = emptyList()
+    private var raionShapes: List<OblastShape> = emptyList()
     private var shadedKeys: Set<String> = emptySet()
+    private var raionLevels: Map<String, String> = emptyMap()
     private var centered = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -165,6 +168,7 @@ class AirAlertActivity : Activity() {
         }
         ui.launch {
             allShapes = withContext(Dispatchers.IO) { regions.shapes() }
+            raionShapes = withContext(Dispatchers.IO) { runCatching { raions.shapes() }.getOrDefault(emptyList()) }
             applyShading() // shade now if an alert arrived before shapes finished loading
         }
     }
@@ -209,8 +213,9 @@ class AirAlertActivity : Activity() {
                 if (map.zoomLevelDouble > 11.0) map.controller.setZoom(11.0)
             }
         }
-        if (s.alertKeys != shadedKeys) {
+        if (s.alertKeys != shadedKeys || s.raionLevels != raionLevels) {
             shadedKeys = s.alertKeys
+            raionLevels = s.raionLevels
             applyShading()
         }
         map.invalidate()
@@ -220,6 +225,22 @@ class AirAlertActivity : Activity() {
     private fun applyShading() {
         if (allShapes.isEmpty()) return
         map.overlays.removeAll { it is Polygon }
+        // Raions under an alert: yellow or red fill (yellow alerts are only ever by raion).
+        for (sh in raionShapes) {
+            val level = raionLevels[sh.key] ?: continue
+            for (ring in sh.rings) {
+                val pts = ArrayList<GeoPoint>(ring.size / 2)
+                var i = 0
+                while (i < ring.size) { pts.add(GeoPoint(ring[i + 1], ring[i])); i += 2 }
+                map.overlays.add(0, Polygon().apply {
+                    points = pts
+                    fillPaint.color = if (level == "yellow") 0x55F2C230 else 0x55E24A3B
+                    outlinePaint.color = if (level == "yellow") 0xCCE0A800.toInt() else 0xCCFF4D4D.toInt()
+                    outlinePaint.strokeWidth = 1.5f * resources.displayMetrics.density
+                    setOnClickListener { _, _, _ -> false }
+                })
+            }
+        }
         // Every oblast gets a clear border; the ones under alert are also shaded red.
         val border = if (Ui.isLight(this)) 0x99404A5C.toInt() else 0x99C8D2E6.toInt()
         for (sh in allShapes) for (ring in sh.rings) {

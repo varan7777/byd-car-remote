@@ -22,6 +22,7 @@ data class AirState(
     val all: List<AirThreat> = emptyList(),      // every tracked threat, for the map
     val alertKeys: Set<String> = emptySet(),     // keys of all oblasts under alert, for shading
     val regionLevel: String? = null,             // "red" | "yellow" for our raion or oblast, null when calm
+    val raionLevels: Map<String, String> = emptyMap(), // raion key → level, for shading the map
 ) {
     /** Worth a beep and a red banner: official siren for our oblast, or a threat within radius. */
     val isAlarm: Boolean get() = oblastAlert != null || within.isNotEmpty()
@@ -57,9 +58,23 @@ data class AirState(
         return lines.joinToString("\n")
     }
 
-    /** Spoken warning when an alarm first fires, as recorded phrases (see [Speaker]). */
+    /** How bad it is around the car: 0 calm, 1 yellow (or another official level), 2 red, 3 a threat in the radius. */
+    fun alarmRank(): Int = when {
+        within.isNotEmpty() -> 3
+        regionLevel == "red" || (oblastAlert != null && regionLevel != "yellow") -> 2
+        regionLevel != null -> 1
+        else -> 0
+    }
+
+    /** Spoken warning when things get worse, as recorded phrases (see [Speaker]). */
     fun voiceClips(speaker: Speaker): List<String> {
-        oblastAlert?.let { a -> return listOfNotNull("tryvoha", speaker.regionClip(a.name)) }
+        if (within.isEmpty()) when {
+            oblastAlert != null && regionLevel != "yellow" ->
+                return listOfNotNull("tryvoha", speaker.regionClip(oblastAlert.name))
+            regionLevel == "red" -> return listOf("tryvoha_rayon")
+            regionLevel == "yellow" -> return listOf("zhovta")
+            regionLevel != null -> return listOf("tryvoha_rayon")
+        }
         val n = nearest ?: return listOf("tryvoha")
         val km = nearestKm?.roundToInt() ?: return listOf("uvaha", threatClip(n.type))
         val dist = if (km < 1) "poruch" else "km${km.coerceAtMost(100)}"
@@ -103,9 +118,10 @@ class AirAlertMonitor(
             val all = client.alerts()
             val alerts = all.oblasts
             val alertKeys = alerts.map { it.key }.toSet()
+            val raionLevels = all.raions.associate { it.key to it.level }
             if (fix == null) {
                 AirState(null, null, null, false, emptyList(), null, threats.list.size, threats.serverTime,
-                    "немає GPS-координат авто", all = threats.list, alertKeys = alertKeys)
+                    "немає GPS-координат авто", all = threats.list, alertKeys = alertKeys, raionLevels = raionLevels)
             } else {
                 val (lat, lon) = fix
                 val ranked = threats.list
@@ -125,7 +141,7 @@ class AirAlertMonitor(
                 val regionLevel = when { "red" in levels -> "red"; "yellow" in levels -> "yellow"; else -> null }
                 AirState(fix, nearest?.first, nearest?.second, approaching, within, oblastAlert,
                     threats.list.size, threats.serverTime, null, all = threats.list, alertKeys = alertKeys,
-                    regionLevel = regionLevel)
+                    regionLevel = regionLevel, raionLevels = raionLevels)
             }
         } catch (e: Exception) {
             AirState(fix, null, null, false, emptyList(), null, 0, null,
