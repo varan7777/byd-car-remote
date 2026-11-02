@@ -84,7 +84,8 @@ class ThreatsOverlay : Overlay() {
         val now = System.currentTimeMillis()
 
         for (t in threats) {
-            val color = colorFor(t.type)
+            val kind = kindOf(t)
+            val color = colorFor(kind)
             val (hlat, hlon) = predict(t, now)
             proj.toPixels(GeoPoint(hlat, hlon), head)
             val hx = head.x.toFloat(); val hy = head.y.toFloat()
@@ -113,9 +114,13 @@ class ThreatsOverlay : Overlay() {
             drawn[t.id] = hx to hy
             dot.color = color
             dot.alpha = if (stale) 110 else 255
-            drawThreat(canvas, t.type, hx, hy, t.heading, 9f * d)
+            drawThreat(canvas, kind, hx, hy, t.heading, 14f * d)
             dot.alpha = 255
-            if (age != null) canvas.drawText(if (age < 1) "щойно" else "$age хв", hx + 11f * d, hy + 16f * d, label)
+            // A group of drones carries its size in the title, e.g. «Група БпЛА (3+)».
+            val group = Regex("\\((\\d+\\+?)\\)").find(t.title)?.groupValues?.get(1)
+                ?: if (t.title.contains("Група")) "група" else null
+            group?.let { canvas.drawText("×$it", hx + 17f * d, hy - 6f * d, label) }
+            if (age != null) canvas.drawText(if (age < 1) "щойно" else "$age хв", hx + 17f * d, hy + 18f * d, label)
         }
 
         car?.let { (lat, lon) ->
@@ -144,6 +149,11 @@ class ThreatsOverlay : Overlay() {
         when (type) {
             "uav" -> { // Shahed: delta wing
                 p.moveTo(0f, -s); p.lineTo(s * 0.9f, s * 0.75f); p.lineTo(0f, s * 0.3f); p.lineTo(-s * 0.9f, s * 0.75f); p.close()
+            }
+            "jet_uav" -> { // jet Shahed (Geran-3): slim swept arrow with a jet nozzle
+                p.moveTo(0f, -s * 1.25f); p.lineTo(s * 0.22f, -s * 0.3f); p.lineTo(s * 0.95f, s * 0.7f)
+                p.lineTo(s * 0.22f, s * 0.55f); p.lineTo(s * 0.3f, s * 1.1f); p.lineTo(-s * 0.3f, s * 1.1f)
+                p.lineTo(-s * 0.22f, s * 0.55f); p.lineTo(-s * 0.95f, s * 0.7f); p.lineTo(-s * 0.22f, -s * 0.3f); p.close()
             }
             "recon" -> { // straight-wing recon plane
                 p.addRect(-s * 0.12f, -s, s * 0.12f, s, Path.Direction.CW)
@@ -189,7 +199,7 @@ class ThreatsOverlay : Overlay() {
     private fun predict(t: AirThreat, now: Long): Pair<Double, Double> {
         val a = anchors[t.id] ?: return t.lat to t.lon
         val h = t.heading ?: return a.lat to a.lon
-        val speed = speedKmh(t.type)
+        val speed = speedKmh(kindOf(t))
         if (speed <= 0) return a.lat to a.lon
         val elapsedH = min(now - a.sinceMs, MAX_DRIFT_MS).coerceAtLeast(0) / 3_600_000.0
         return Geo.dest(a.lat, a.lon, h.toDouble(), speed * elapsedH)
@@ -197,6 +207,7 @@ class ThreatsOverlay : Overlay() {
 
     private fun speedKmh(type: String): Double = when (type) {
         "uav" -> 160.0        // Shahed-type cruise
+        "jet_uav" -> 500.0    // jet Shahed (Geran-3)
         "recon" -> 120.0
         "missile" -> 700.0    // subsonic cruise missile
         "ballistic", "kab", "mig31k" -> 0.0 // too fast / near target — show where NEPTUN places it
@@ -204,12 +215,16 @@ class ThreatsOverlay : Overlay() {
     }
 
     private fun colorFor(type: String): Int = when (type) {
-        "missile", "ballistic", "mig31k" -> 0xFFFF4D4D.toInt()
+        "missile", "ballistic", "mig31k", "jet_uav" -> 0xFFFF4D4D.toInt()
         "kab" -> 0xFFFFC14D.toInt()
         "uav", "recon" -> 0xFFFF8A3D.toInt()
         "fpv" -> 0xFFE879F9.toInt()
         else -> 0xFFD0D7E2.toInt()
     }
+
+    /** NEPTUN types a jet Shahed as a plain "uav"; only its title tells it apart. */
+    private fun kindOf(t: AirThreat): String =
+        if (t.type == "uav" && JET.containsMatchIn(t.title + " " + t.explanation)) "jet_uav" else t.type
 
     /** Where the marker of [id] was last drawn, in MapView pixels. */
     fun positionOf(id: String): Pair<Float, Float>? = drawn[id]
@@ -225,7 +240,8 @@ class ThreatsOverlay : Overlay() {
 
     private companion object {
         const val STALE_MIN = 15
-        val KNOWN = setOf("uav", "recon", "fpv", "missile", "ballistic", "kab", "mig31k")
+        val KNOWN = setOf("uav", "jet_uav", "recon", "fpv", "missile", "ballistic", "kab", "mig31k")
+        val JET = Regex("реактив|238|герань-3|geran-3", RegexOption.IGNORE_CASE)
         const val MAX_DRIFT_MS = 180_000L   // cap head extrapolation at 3 min between updates
         const val MAX_TRAIL = 40            // trail points kept per track
         const val TRAIL_AGE_MS = 900_000L   // drop trail points older than 15 min

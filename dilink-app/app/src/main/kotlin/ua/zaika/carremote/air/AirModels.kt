@@ -27,7 +27,7 @@ data class AirThreat(
 
     /** Short label with the gist of the threat type, for the on-screen banner. */
     val label: String get() = when (type) {
-        "uav" -> "БпЛА"
+        "uav" -> if (Regex("реактив|238|герань-3", RegexOption.IGNORE_CASE).containsMatchIn(title)) "Реактивний БпЛА" else "БпЛА"
         "recon" -> "Розвід. БпЛА"
         "fpv" -> "FPV-дрон"
         "missile" -> "Ракета"
