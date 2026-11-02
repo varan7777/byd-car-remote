@@ -78,6 +78,7 @@ class ThreatsOverlay : Overlay() {
         trail.strokeWidth = 2f * d
         carRing.strokeWidth = 2f * d
         label.textSize = 12f * d
+        label.setShadowLayer(2.5f * d, 0f, 0f, 0xE6000000.toInt()) // readable on the light day map too
         val proj = mapView.projection
         val head = Point()
         val seg = Point()
