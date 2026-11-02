@@ -125,6 +125,10 @@ object Geo {
      * and keep the previous position until a sane fix comes back.
      */
     fun lastKnown(context: Context): Pair<Double, Double>? {
+        // Screenshots for the site: a "lat,lon" in files/demo_fix stands in for the car's GPS,
+        // so the owner's real place never shows. Put there and removed over ADB (run-as).
+        runCatching { java.io.File(context.filesDir, "demo_fix").readText().trim().split(',') }.getOrNull()
+            ?.mapNotNull { it.trim().toDoubleOrNull() }?.takeIf { it.size == 2 }?.let { return it[0] to it[1] }
         ensureLoaded(context)
         val raw = rawFix(context)
         val prev = trusted
