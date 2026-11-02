@@ -227,11 +227,17 @@ class ThreatsOverlay : Overlay() {
     /** Dead-reckoned head position: advance the anchor along the heading, capped so it can't run away. */
     private fun predict(t: AirThreat, now: Long): Pair<Double, Double> {
         val a = anchors[t.id] ?: return t.lat to t.lon
-        val h = t.heading ?: return a.lat to a.lon
-        val speed = speedKmh(kindOf(t))
+        // Course: NEPTUN's, else from the last two reported positions.
+        val h = t.heading?.toDouble() ?: t.path.takeLast(2).takeIf { it.size == 2 }?.let { (p, q) ->
+            if (p == q) null else Geo.bearingDeg(p.first, p.second, q.first, q.second)
+        } ?: return a.lat to a.lon
+        // Speed: measured from its track when we have it, else the usual for its kind.
+        val speed = t.speedKmh?.coerceIn(80.0, 900.0) ?: speedKmh(kindOf(t))
         if (speed <= 0) return a.lat to a.lon
-        val elapsedH = min(now - a.sinceMs, MAX_DRIFT_MS).coerceAtLeast(0) / 3_600_000.0
-        return Geo.dest(a.lat, a.lon, h.toDouble(), speed * elapsedH)
+        // Positions are reported late, so move on from when NEPTUN saw it, not when we got it.
+        val since = minOf(t.updatedMs ?: a.sinceMs, a.sinceMs)
+        val elapsedH = min(now - since, MAX_DRIFT_MS).coerceAtLeast(0) / 3_600_000.0
+        return Geo.dest(a.lat, a.lon, h, speed * elapsedH)
     }
 
     private fun speedKmh(type: String): Double = when (type) {
@@ -277,7 +283,7 @@ class ThreatsOverlay : Overlay() {
     private companion object {
         const val STALE_MIN = 15
         val KNOWN = setOf("uav", "jet_uav", "recon", "fpv", "missile", "ballistic", "kab", "mig31k")
-        const val MAX_DRIFT_MS = 180_000L   // cap head extrapolation at 3 min between updates
+        const val MAX_DRIFT_MS = 360_000L   // cap head extrapolation at 6 min past the last report
         const val MAX_TRAIL = 40            // trail points kept per track
         const val TRAIL_AGE_MS = 900_000L   // drop trail points older than 15 min
     }
