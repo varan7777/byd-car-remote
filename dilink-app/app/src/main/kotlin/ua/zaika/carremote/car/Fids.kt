@@ -57,14 +57,16 @@ object Fids {
     // Lights, dev 1004. Hazard flash for "find car": write 1=on, 0=off (no readback).
     const val DEV_LIGHTS = 1004
     const val HAZARD = 871366669
-    // Daytime running lights: state 1=on 2=off (0 = not reported); write 2 = off. The write is
-    // accepted on Song Plus; whether it actually switches the DRL off is still to be seen on-car.
+    // Daytime running lights: state 1=on 2=off (0 = not reported); write 1 = on, 2 = off.
     const val DRL_STATE = 1231040528
     const val DRL_SET = 1125122118
 
     // Seat occupancy, dev 1042: 1 = free, 2 = occupied (0 = not reported on this trim).
+    // Song Plus reports every seat but the driver's (reads 0), so the driver is seen by the belt.
     const val DEV_SEATS = 1042
     val OCCUPANCY = listOf(824180800, 824180758, 824180760, 824180762, 824180764)
+    const val DEV_BELTS = 1007
+    const val SEATBELT_DRIVER = 692060184 // 1 = buckled, 0 = not
 
     // Climate, dev 1000. Verified on Song Plus 2025.
     const val AC_STATUS = 1077936144 // int: 1 on

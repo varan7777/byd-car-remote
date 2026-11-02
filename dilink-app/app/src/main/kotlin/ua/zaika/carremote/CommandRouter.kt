@@ -49,6 +49,9 @@ class CommandRouter(
             "🏓 Пінг" -> return Reply(status(), ReplyKeyboard(MAIN_LABELS))
             "⏸ Зупинити зарядку", "⚡ Почати зарядку" ->
                 return menu("Кнопки зарядки прибрано: на цьому авто вони не працюють.")
+            "🌙 Тихий режим", "☀️ Екран увімкнути" -> return menu(
+                "Тихий режим тепер вмикається сам: коли авто замкнене й у ньому нікого 2 хвилини, " +
+                    "гаснуть екран і ходові вогні; щойно хтось повернувся — вмикаються знову.")
         }
         // A reply-keyboard tap arrives as the label; everything else is a typed/slash command.
         val token = (BUTTON_ID[text] ?: parts[0]).substringBefore('@').lowercase()
@@ -69,8 +72,6 @@ class CommandRouter(
 
             "findcar" -> findCar()
             "lock" -> lockAll()
-            "quiet", "/quiet" -> requestQuiet(on = true)
-            "quiet_off", "/quiet_off" -> requestQuiet(on = false)
             "windows_open" -> windows(open = true)
             "windows_close" -> windows(open = false)
 
@@ -197,16 +198,6 @@ class CommandRouter(
         return Reply((notes + lock.text).joinToString("\n"))
     }
 
-    /**
-     * «Тихий режим» is on demand only: the bot asks, the service switches the screen and DRL off
-     * (it owns the head unit's ADB). It ends by itself when the car is unlocked or someone gets in.
-     */
-    private fun requestQuiet(on: Boolean): Reply {
-        prefs.edit().putString(ua.zaika.carremote.car.ParkedQuiet.KEY_REQUEST, if (on) "on" else "off").apply()
-        return Reply(if (on) "🌙 Вимикаю екран і ходові вогні… Результат прийде окремим повідомленням."
-            else "☀️ Повертаю екран…")
-    }
-
     /** "Find car": flash the hazards for a few seconds. */
     private fun findCar(): Reply {
         if (!car.isReachable()) return Reply(noAdb())
@@ -274,7 +265,6 @@ class CommandRouter(
             listOf("🧳 Багажник відкр." to "trunk_open", "🧳 Багажник закр." to "trunk_close"),
             listOf("📍 Знайти авто" to "findcar"),
             listOf("🅿️ Стан на стоянці" to "parked", "🪫 Поріг заряду" to "setlow_menu"),
-            listOf("🌙 Тихий режим" to "quiet", "☀️ Екран увімкнути" to "quiet_off"),
         )
         val MAIN_LABELS: List<List<String>> = BUTTONS.map { row -> row.map { it.first } }
         val BUTTON_ID: Map<String, String> = BUTTONS.flatten().associate { it.first to it.second }

@@ -20,11 +20,10 @@ class AlertNotifier {
         if (!worse) return null
         val parked = car.getInt(Fids.DEV_GEAR, Fids.GEAR) == 1
         if (!parked) return null
-        // The seat sensors don't see the driver on this car, so they alone can't say the cabin
+        // The driver's seat has no sensor on this car, so seats and belt alone can't say the cabin
         // is empty. Someone sitting inside keeps the car unlocked; a car left behind is locked.
-        val seated = Fids.OCCUPANCY.any { car.getInt(Fids.DEV_SEATS, it) == 2 }
         val locked = car.getInt(Fids.DEV_DOOR_LOCKS, Fids.LOCK_DRIVER) == 2
-        if (seated || !locked) return null
+        if (!locked || ua.zaika.carremote.car.someoneInside(car)) return null
         return text(s)
     }
 

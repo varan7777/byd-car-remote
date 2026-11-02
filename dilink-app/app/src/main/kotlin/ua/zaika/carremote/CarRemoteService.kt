@@ -271,7 +271,6 @@ class CarRemoteService : Service() {
                                 for (m in autos.poll(snap)) runCatching { bot.send(owner, m) }
                             }
                             quiet.poll(snap)
-                                ?.let { m -> runCatching { bot.send(owner, m) } }
                             // Air alert to the owner's Telegram — only when the car stands in P with
                             // nobody inside (in the car the screen and voice already warn).
                             alertWatch.poll(airState, car)?.let { m -> runCatching { bot.send(owner, m) } }
@@ -283,11 +282,7 @@ class CarRemoteService : Service() {
                         }
                         if (ticks++ % 5 == 0) runCatching { watchdog?.ensureRunning() }
                     }
-                    // Wake early when «Тихий режим» was asked for from the bot.
-                    var waited = 0
-                    while (waited < 30_000 && !prefs.contains(ua.zaika.carremote.car.ParkedQuiet.KEY_REQUEST)) {
-                        delay(2_000); waited += 2_000
-                    }
+                    delay(30_000)
                 }
             }
         }
