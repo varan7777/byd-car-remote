@@ -117,10 +117,11 @@ class DashboardView(context: Context) : View(context) {
         val alertState = when {
             a == null -> "—"
             a.error != null && a.nearest == null -> "Немає даних"
+            // A threat inside the radius is the reason for red, so say that rather than the alert level.
+            a.within.isNotEmpty() -> "Поруч$km"
             a.regionLevel == "red" || a.oblastAlert != null -> "Тривога$km"
             a.regionLevel == "yellow" -> "Жовта$km"
             a.regionLevel != null -> "Тривога: ${a.regionLevel}$km"
-            a.within.isNotEmpty() -> "Поруч$km"
             a.nearest != null -> "Далеко$km"
             else -> "Спокійно"
         }
