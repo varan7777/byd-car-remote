@@ -324,7 +324,6 @@ class CarRemoteService : Service() {
      */
     private fun startAirMonitor() {
         val prefs = getSharedPreferences("carremote", Context.MODE_PRIVATE)
-        airTone = runCatching { ToneGenerator(AudioManager.STREAM_ALARM, 100) }.getOrNull()
         airSpeaker = Speaker(this)
         val monitor = AirAlertMonitor(applicationContext, radiusKm = prefs.getInt(KEY_RADIUS, DEFAULT_RADIUS).toDouble())
         // Live-apply radius changes from the settings screen (keep a strong ref: prefs listeners are weak).
@@ -336,7 +335,7 @@ class CarRemoteService : Service() {
                 airState = state
                 if (state.isAlarm && !airAlarmActive) {
                     airBeep()
-                    if (prefs.getBoolean(KEY_VOICE, true)) airSpeaker?.speak(state.voiceAlert())
+                    if (prefs.getBoolean(KEY_VOICE, true)) airSpeaker?.let { it.speak(state.voiceClips(it), alarmVolume()) }
                 }
                 airAlarmActive = state.isAlarm
                 // A system notification specifically for an official alert in OUR oblast (edge-triggered).
@@ -352,9 +351,16 @@ class CarRemoteService : Service() {
 
     /** The alarm beep pattern on the alarm audio stream. */
     private fun airBeep() {
-        val t = airTone ?: return
+        // A fresh generator each time picks up the owner's alarm volume.
+        airTone?.release()
+        val t = runCatching { ToneGenerator(AudioManager.STREAM_ALARM, (alarmVolume() * 100).toInt()) }.getOrNull() ?: return
+        airTone = t
         scope.launch { repeat(4) { t.startTone(ToneGenerator.TONE_PROP_BEEP2, 300); delay(400) } }
     }
+
+    /** Alarm loudness 0..1 from Settings: heard, but not the car's full alarm volume. */
+    private fun alarmVolume(): Float =
+        getSharedPreferences("carremote", Context.MODE_PRIVATE).getInt(KEY_ALARM_VOLUME, DEFAULT_ALARM_VOLUME) / 100f
 
     /** Heads-up notification for an official air-raid alert covering the car's oblast. */
     private fun showAirAlert(alert: AirAlert) {
@@ -381,11 +387,9 @@ class CarRemoteService : Service() {
             cameraPreviewUntil = SystemClock.elapsedRealtime() + 10_000
         }
         if (intent?.action == ACTION_TEST && trusted) {
-            // Re-open the voice each test: picks up an engine or Ukrainian voice installed since start.
-            airSpeaker?.shutdown(); airSpeaker = ua.zaika.carremote.air.Speaker(this)
             airBeep()
             if (getSharedPreferences("carremote", Context.MODE_PRIVATE).getBoolean(KEY_VOICE, true)) {
-                airSpeaker?.speak("Увага. Перевірка сигналу. Безпілотник за десять кілометрів. Курс на вас.")
+                airSpeaker?.speak(listOf("uvaha", "test", "t_uav", "km10", "kurs"), alarmVolume())
             }
         }
         return START_STICKY
@@ -436,6 +440,8 @@ class CarRemoteService : Service() {
         // Air-watch settings (shared with the dashboard/map screens via SharedPreferences).
         const val KEY_RADIUS = "air_radius_km"
         const val KEY_VOICE = "air_voice"
+        const val KEY_ALARM_VOLUME = "alarm_volume" // percent
+        const val DEFAULT_ALARM_VOLUME = 40
         const val KEY_WIDGET = "widget"
         const val KEY_AUTOMATIONS = "automations"
         const val KEY_TARIFF = "tariff_per_kwh"

@@ -57,17 +57,17 @@ data class AirState(
         return lines.joinToString("\n")
     }
 
-    /** Short spoken warning for TTS when an alarm first fires. */
-    fun voiceAlert(): String {
-        oblastAlert?.let { return "Повітряна тривога. ${it.name}." }
-        val n = nearest
-        val km = nearestKm
-        if (n != null && km != null) {
-            val appr = if (approaching) " Курс на вас." else ""
-            return "Увага. ${n.label} за ${km.roundToInt()} кілометрів.$appr"
-        }
-        return "Повітряна тривога."
+    /** Spoken warning when an alarm first fires, as recorded phrases (see [Speaker]). */
+    fun voiceClips(speaker: Speaker): List<String> {
+        oblastAlert?.let { a -> return listOfNotNull("tryvoha", speaker.regionClip(a.name)) }
+        val n = nearest ?: return listOf("tryvoha")
+        val km = nearestKm?.roundToInt() ?: return listOf("uvaha", threatClip(n.type))
+        val dist = if (km < 1) "poruch" else "km${km.coerceAtMost(100)}"
+        return listOfNotNull("uvaha", threatClip(n.type), dist, "kurs".takeIf { approaching })
     }
+
+    private fun threatClip(type: String) =
+        if (type in setOf("uav", "recon", "fpv", "missile", "ballistic", "kab", "mig31k")) "t_$type" else "t_other"
 
     /** One compact line for the dashboard. */
     fun oneLine(radiusKm: Double): String {

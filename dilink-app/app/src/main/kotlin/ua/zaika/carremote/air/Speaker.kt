@@ -1,102 +1,68 @@
 package ua.zaika.carremote.air
 
 import android.content.Context
-import android.media.AudioManager
-import android.os.Bundle
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
+import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.util.Log
-import java.util.Locale
+import org.json.JSONObject
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
- * Ukrainian text-to-speech for spoken air-raid warnings.
- *
- * The DiLink's own TTS engine (com.byd.autovoice) speaks neither Ukrainian nor English, so we
- * prefer RHVoice — a free, offline, open-source engine with Ukrainian voices — and fall back to
- * the system default if it isn't installed. Speaks on the ALARM stream (same reliably-audible
- * route as the beep). No-ops silently if no usable voice exists, so the beep + banner still
- * carry the alert. Logs under "AirSpeaker".
+ * Ukrainian spoken air-raid warnings from phrases recorded into the app (assets/voice, Piper voice
+ * «tetiana», dataset CC0). DiLink's own TTS speaks no Ukrainian and the head unit won't bind a
+ * third-party engine (RHVoice) unless it is already running, so the app carries its own phrases:
+ * «Увага», the threat type, «за N кілометрів» (1..100 — warnings are spoken only inside the alarm
+ * radius), «Курс на вас», «Повітряна тривога» and every oblast. Plays them back to back on the alarm
+ * route at the owner's alarm volume. Logs under "AirSpeaker".
  */
 class Speaker(context: Context) {
 
     private val appContext = context.applicationContext
-    private var tts: TextToSpeech? = null
-    private var ready = false
-    private var pending: String? = null // spoken as soon as the engine is ready
-
-    init {
-        initWith(RHVOICE) // prefer RHVoice (has Ukrainian); falls back to default on failure
+    private val worker = Executors.newSingleThreadExecutor()
+    private val regions: Map<String, String> by lazy {
+        runCatching {
+            val j = JSONObject(appContext.assets.open("voice/regions.json").bufferedReader().readText())
+            j.keys().asSequence().associateWith { j.getString(it) }
+        }.getOrDefault(emptyMap())
     }
 
-    private fun initWith(engine: String?) {
-        tts = if (engine != null) {
-            TextToSpeech(appContext, { status -> onInit(status, engine) }, engine)
-        } else {
-            TextToSpeech(appContext) { status -> onInit(status, null) }
+    /** Clip for an oblast name as NEPTUN gives it ("Київська область", "м. Київ"), or null. */
+    fun regionClip(name: String): String? = regions[name.trim()]
+
+    /** Plays [clips] (names under assets/voice) in order at [volume] 0..1. Queued after any in progress. */
+    fun speak(clips: List<String>, volume: Float) {
+        if (clips.isEmpty()) return
+        worker.execute {
+            Log.i(TAG, "speak $clips")
+            clips.forEach { play(it, volume) }
         }
     }
 
-    private fun onInit(status: Int, engine: String?) {
-        if (status != TextToSpeech.SUCCESS) {
-            if (engine != null) {
-                Log.w(TAG, "engine $engine unavailable (status=$status); falling back to default")
-                runCatching { tts?.shutdown() }
-                initWith(null)
-            } else {
-                Log.w(TAG, "TTS init failed: status=$status")
-            }
-            return
+    private fun play(clip: String, volume: Float) {
+        val afd = runCatching { appContext.assets.openFd("voice/$clip.m4a") }.getOrNull()
+            ?: return Log.w(TAG, "no clip $clip").let { }
+        val done = java.util.concurrent.CountDownLatch(1)
+        val mp = MediaPlayer()
+        try {
+            mp.setAudioAttributes(AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+            afd.use { mp.setDataSource(it.fileDescriptor, it.startOffset, it.length) }
+            mp.setOnCompletionListener { done.countDown() }
+            mp.setOnErrorListener { _, _, _ -> done.countDown(); true }
+            mp.prepare()
+            mp.setVolume(volume.coerceIn(0f, 1f), volume.coerceIn(0f, 1f))
+            mp.start()
+            done.await(10, TimeUnit.SECONDS)
+        } catch (e: Exception) {
+            Log.w(TAG, "clip $clip failed", e)
+        } finally {
+            mp.release()
         }
-        val tts = tts ?: return
-        val uk = runCatching { tts.setLanguage(Locale("uk", "UA")) }.getOrNull()
-        Log.i(TAG, "engine=${runCatching { tts.defaultEngine }.getOrNull()} setLanguage(uk-UA)=${langName(uk)}")
-        if ((uk == TextToSpeech.LANG_MISSING_DATA || uk == TextToSpeech.LANG_NOT_SUPPORTED || uk == null) && engine != null) {
-            // RHVoice is here but somehow has no Ukrainian voice yet; still try the default engine.
-            Log.w(TAG, "no Ukrainian on $engine; falling back to default")
-            runCatching { this.tts?.shutdown() }
-            initWith(null)
-            return
-        }
-        tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) { Log.i(TAG, "onStart $utteranceId") }
-            override fun onDone(utteranceId: String?) { Log.i(TAG, "onDone $utteranceId") }
-            override fun onError(utteranceId: String?) { Log.w(TAG, "onError $utteranceId") }
-            override fun onError(utteranceId: String?, errorCode: Int) { Log.w(TAG, "onError $utteranceId code=$errorCode") }
-        })
-        ready = true
-        Log.i(TAG, "ready (engine=$engine)")
-        pending?.let { pending = null; speak(it) }
     }
 
-    fun speak(text: String) {
-        val engine = tts
-        if (!ready || engine == null) { Log.w(TAG, "speak() before ready; queued"); pending = text; return }
-        val params = Bundle().apply {
-            putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_ALARM)
-            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
-        }
-        val r = runCatching { engine.speak(text, TextToSpeech.QUEUE_FLUSH, params, "air") }.getOrNull()
-        Log.i(TAG, "speak()->$r text=\"$text\"")
-    }
+    fun shutdown() = worker.shutdown()
 
-    fun shutdown() {
-        runCatching { tts?.stop() }
-        runCatching { tts?.shutdown() }
-        tts = null
-    }
-
-    private fun langName(code: Int?): String = when (code) {
-        TextToSpeech.LANG_AVAILABLE -> "AVAILABLE"
-        TextToSpeech.LANG_COUNTRY_AVAILABLE -> "COUNTRY_AVAILABLE"
-        TextToSpeech.LANG_COUNTRY_VAR_AVAILABLE -> "COUNTRY_VAR_AVAILABLE"
-        TextToSpeech.LANG_MISSING_DATA -> "MISSING_DATA"
-        TextToSpeech.LANG_NOT_SUPPORTED -> "NOT_SUPPORTED"
-        null -> "null"
-        else -> "code=$code"
-    }
-
-    private companion object {
-        const val TAG = "AirSpeaker"
-        const val RHVOICE = VoiceSetup.RHVOICE
-    }
+    private companion object { const val TAG = "AirSpeaker" }
 }

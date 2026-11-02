@@ -24,6 +24,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
+import android.widget.SeekBar
 import android.widget.TextView
 import ua.zaika.carremote.CarRemoteService
 import ua.zaika.carremote.adb.AdbShell
@@ -72,9 +73,9 @@ class SettingsActivity : Activity() {
                 inputRow("Валюта", CarRemoteService.KEY_CURRENCY, "грн", numeric = false, defaultText = "грн"),
             ), note("Витрати на екрані «Заряджання» = кВт·год × тариф.")) },
             "Голос тривоги" to { listOf(
-                header("Український голос"), voiceCard(),
-                note("Штатний голос DiLink не говорить українською, тому для голосових попереджень потрібен " +
-                    "безкоштовний офлайн-рушій RHVoice. Без нього під час тривоги звучить лише сигнал."),
+                header("Голос і гучність"), card(switchRow("Говорити голосом", CarRemoteService.KEY_VOICE, true), volumeRow()),
+                note("Український голос вбудований у застосунок і працює без інтернету. " +
+                    "Гучність тривоги окрема від гучності авто: чутно, але не лякає."),
             ) },
             "Зв'язок" to { listOf(
                 header("Telegram / Varan Hub"), pairCard(),
@@ -130,64 +131,33 @@ class SettingsActivity : Activity() {
         build().forEach { content.addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)) }
     }
 
-    // --- Spoken alerts: a Ukrainian voice (RHVoice) ---
+    // --- Spoken alerts: built-in Ukrainian voice ---
 
-    private fun voiceCard(): View {
-        val status = TextView(this).apply { textSize = 17f; typeface = sfSemibold; setPadding(dpv(4), dpv(10), dpv(4), dpv(10)) }
-        val action = filledPill("", Ui.BLUE) {}
-        val test = tintedPill("Перевірити голос", Ui.textc(this)) { CarRemoteService.testAlarm(this) }
-        var busy = false
-        fun render() {
-            ua.zaika.carremote.air.VoiceSetup.check(this) { st ->
-                runOnUiThread {
-                    if (busy) return@runOnUiThread
-                    when (st) {
-                        ua.zaika.carremote.air.VoiceSetup.State.READY -> {
-                            status.text = "✓ Український голос встановлено"; status.setTextColor(Ui.GREEN)
-                            action.text = "Змінити голос"; action.setOnClickListener { ua.zaika.carremote.air.VoiceSetup.openVoiceList(this) }
-                        }
-                        ua.zaika.carremote.air.VoiceSetup.State.NO_UKRAINIAN -> {
-                            status.text = "RHVoice є, але без української. Додайте голос «Українська»."; status.setTextColor(Ui.ORANGE)
-                            action.text = "Додати український голос"; action.setOnClickListener { ua.zaika.carremote.air.VoiceSetup.openVoiceList(this) }
-                        }
-                        ua.zaika.carremote.air.VoiceSetup.State.NO_ENGINE -> {
-                            status.text = "Голос не встановлено — під час тривоги лише сигнал"; status.setTextColor(Ui.ORANGE)
-                            action.text = "Встановити український голос"
-                            action.setOnClickListener {
-                                if (busy) return@setOnClickListener
-                                busy = true; action.alpha = 0.5f
-                                Thread {
-                                    val err = runCatching {
-                                        ua.zaika.carremote.air.VoiceSetup.install(applicationContext) { p -> runOnUiThread { status.text = p; status.setTextColor(Ui.textc(this)) } }
-                                    }.exceptionOrNull()
-                                    runOnUiThread {
-                                        busy = false; action.alpha = 1f
-                                        if (err != null) { status.text = err.message ?: "Не вдалося встановити"; status.setTextColor(Ui.RED) }
-                                        else { ua.zaika.carremote.air.VoiceSetup.openVoiceList(this); render() }
-                                    }
-                                }.start()
-                            }
-                        }
-                    }
-                }
-            }
+    /** Alarm loudness (beep and voice), with a button to hear it. */
+    private fun volumeRow(): View {
+        val current = prefs.getInt(CarRemoteService.KEY_ALARM_VOLUME, CarRemoteService.DEFAULT_ALARM_VOLUME)
+        val label = TextView(this).apply {
+            setTextColor(Ui.textc(context)); textSize = 17f; typeface = sf
+            text = "Гучність тривоги: $current%"
         }
-        render()
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(status)
-            addView(LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                addView(action, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { setMargins(0, 0, dpv(12), 0) })
-                addView(test)
+        val slider = SeekBar(this).apply {
+            max = 90 // 10..100 %
+            progress = current - 10
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar, p: Int, fromUser: Boolean) { label.text = "Гучність тривоги: ${p + 10}%" }
+                override fun onStartTrackingTouch(sb: SeekBar) {}
+                override fun onStopTrackingTouch(sb: SeekBar) {
+                    prefs.edit().putInt(CarRemoteService.KEY_ALARM_VOLUME, sb.progress + 10).apply()
+                }
             })
         }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        // Coming back from RHVoice's voice list: refresh the voice section if it is open.
-        if (::content.isInitialized && navItems.getOrNull(2)?.background != null) navItems[2].performClick()
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dpv(4), dpv(10), dpv(4), dpv(10))
+            addView(label)
+            addView(slider, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpv(48)))
+            addView(tintedPill("Перевірити голос", Ui.textc(context)) { CarRemoteService.testAlarm(this@SettingsActivity) })
+        }
     }
 
     // --- Telegram pairing ---

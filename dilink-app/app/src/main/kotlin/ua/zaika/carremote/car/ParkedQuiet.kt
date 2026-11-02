@@ -4,8 +4,8 @@ import android.content.SharedPreferences
 import ua.zaika.carremote.adb.AdbShell
 
 /**
- * «Тихий режим», automatic: when the car stands in P, locked, doors shut, with nobody in it for
- * two minutes, switch the head unit's backlight and the daytime running lights off, so a car kept
+ * «Тихий режим», automatic: when the car stands in P, locked, doors shut, climate off, nobody in
+ * the seats and the screen untouched for ten minutes, for two minutes in a row, switch the head unit's backlight and the daytime running lights off, so a car kept
  * online («Доступність на стоянці», or simply charging) does not stand lit up in the yard. As soon
  * as anyone is back — unlocked, a door opens, a seat is taken, the driver's belt buckled, a gear
  * engaged — both come back on.
@@ -21,8 +21,11 @@ class ParkedQuiet(private val car: Autoservice, private val adb: AdbShell, priva
     /** Call every poll. Never messages the owner: it just follows who is in the car. */
     fun poll(snap: CarSnapshot?) {
         snap ?: return
+        // The driver's seat has no sensor and people lock themselves in, so also count the
+        // climate running and a recent touch on the screen as someone being there.
         val empty = snap.locked == true && snap.doorsOpen.none { it == true } &&
-            car.getInt(Fids.DEV_GEAR, Fids.GEAR) == 1 && !someoneInside(car)
+            car.getInt(Fids.DEV_GEAR, Fids.GEAR) == 1 && !someoneInside(car) &&
+            car.getInt(Fids.DEV_CLIMATE, Fids.AC_STATUS) != 1 && !touchedWithin(TOUCH_QUIET_MS)
         val active = prefs.getBoolean(ACTIVE, false)
         if (!empty) {
             emptySince = 0
@@ -32,6 +35,15 @@ class ParkedQuiet(private val car: Autoservice, private val adb: AdbShell, priva
         val now = System.currentTimeMillis()
         if (emptySince == 0L) emptySince = now
         if (!active && now - emptySince >= QUIET_AFTER_MS) goQuiet()
+    }
+
+    /** True when the head unit's screen was touched in the last [ms] (or that can't be read). */
+    private fun touchedWithin(ms: Long): Boolean {
+        val out = adb.exec("dumpsys power | grep -m1 mLastUserActivityTime; cat /proc/uptime") ?: return true
+        val last = Regex("mLastUserActivityTime\\S*=(\\d+)").find(out)?.groupValues?.get(1)?.toLongOrNull() ?: return true
+        val uptime = Regex("^(\\d+)\\.", RegexOption.MULTILINE).find(out.substringAfter('\n'))
+            ?.groupValues?.get(1)?.toLongOrNull()?.times(1000) ?: return true
+        return uptime - last < ms
     }
 
     private fun goQuiet() {
@@ -59,6 +71,7 @@ class ParkedQuiet(private val car: Autoservice, private val adb: AdbShell, priva
     companion object {
         const val KEY_ENABLED = "parked_quiet" // legacy switch, no longer read
         private const val QUIET_AFTER_MS = 2 * 60_000L
+        private const val TOUCH_QUIET_MS = 10 * 60_000L
         private const val ACTIVE = "parked_quiet_active"
         private const val SAVED_MODE = "parked_quiet_mode"
         private const val SAVED_LEVEL = "parked_quiet_level"
