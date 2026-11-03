@@ -349,7 +349,9 @@ class CarRemoteService : Service() {
                     // Any step down counts only after a few calm minutes: a drone hovering at the radius
                     // edge must not re-beep, re-speak or flip «відбій» on every poll.
                     if (rank >= airRank) { airCalmSince = 0; airRank = rank }
-                    else if (state.alertsUnknown) airCalmSince = 0 // can't tell it's calm: never step down
+                    // Can't tell it's calm: don't step down now, but don't restart the calm minutes either —
+                    // on a flaky line every few polls fail, and a reset there meant «відбій» never came.
+                    else if (state.alertsUnknown) Unit
                     else {
                         if (airCalmSince == 0L) airCalmSince = now
                         if (now - airCalmSince >= CALM_HOLD_MS) {
