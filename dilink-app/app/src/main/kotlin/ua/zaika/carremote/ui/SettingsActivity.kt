@@ -292,10 +292,15 @@ class SettingsActivity : Activity() {
                 val found = ua.zaika.carremote.update.Updater.check(prefs)
                 runOnUiThread { busy = false; if (found == null) render("Версія ${ua.zaika.carremote.BuildConfig.VERSION_NAME} · встановлено останню", Ui.GREEN) else render() }
             } else work {
-                ua.zaika.carremote.update.Updater.install(applicationContext, rel) { p -> runOnUiThread { render(p, Ui.ORANGE) } }
+                // Ask the hub again first: the remembered release may have been replaced (and its file removed) since.
+                val newest = runCatching { ua.zaika.carremote.update.Updater.check(prefs) }.getOrElse { rel }
+                if (newest == null) { runOnUiThread { busy = false; render("Версія ${ua.zaika.carremote.BuildConfig.VERSION_NAME} · встановлено останню", Ui.GREEN) }; return@work }
+                ua.zaika.carremote.update.Updater.install(applicationContext, newest) { p -> runOnUiThread { render(p, Ui.ORANGE) } }
             }
         }
         render()
+        // Opening the screen refreshes what's available, so it never offers a release that's gone.
+        Thread { if (runCatching { ua.zaika.carremote.update.Updater.check(prefs) }.isSuccess) runOnUiThread { if (!busy) render() } }.start()
         return card(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             listOf(status, notes, action).forEach { addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)) }
