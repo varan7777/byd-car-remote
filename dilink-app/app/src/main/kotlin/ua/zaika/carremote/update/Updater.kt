@@ -50,31 +50,43 @@ object Updater {
         return available(prefs)
     }
 
-    /** Downloads, verifies and hands the APK to the package manager. The app restarts by itself. */
+    /**
+     * Downloads (resuming a partial file from an earlier try), verifies and hands the APK to the
+     * package manager. The app restarts by itself.
+     */
     fun install(context: Context, release: Release, progress: (String) -> Unit) {
-        val file = File(context.cacheDir, "update.apk")
-        progress("Завантаження…")
-        client.newCall(Request.Builder().url(release.url).build()).execute().use { r ->
-            if (!r.isSuccessful) throw IOException("Не вдалося завантажити оновлення")
-            val total = release.size.coerceAtLeast(1)
-            val digest = MessageDigest.getInstance("SHA-256")
-            var done = 0L; var shown = -1
-            r.body!!.byteStream().use { input ->
-                file.outputStream().use { out ->
-                    val buf = ByteArray(64 * 1024)
-                    while (true) {
-                        val n = input.read(buf); if (n < 0) break
-                        out.write(buf, 0, n); digest.update(buf, 0, n); done += n
-                        if (done > release.size) throw IOException("Файл більший, ніж має бути")
-                        val pct = (done * 100 / total).toInt()
-                        if (pct != shown && pct % 5 == 0) { shown = pct; progress("Завантаження $pct%…") }
+        val file = File(context.cacheDir, "update-${release.code}.apk")
+        context.cacheDir.listFiles { f -> f.name.startsWith("update") && f != file }?.forEach { it.delete() }
+        if (file.length() > release.size) file.delete()
+        val total = release.size.coerceAtLeast(1)
+        if (file.length() < release.size) {
+            val have = file.length()
+            progress(if (have > 0) "Докачування ${have * 100 / total}%…" else "Завантаження…")
+            val req = Request.Builder().url(release.url).apply { if (have > 0) header("Range", "bytes=$have-") }.build()
+            client.newCall(req).execute().use { r ->
+                if (!r.isSuccessful) throw IOException("Не вдалося завантажити оновлення")
+                // 206: the server continues where we stopped; 200: it sends the whole file again.
+                val append = have > 0 && r.code == 206
+                var done = if (append) have else 0L; var shown = -1
+                r.body!!.byteStream().use { input ->
+                    java.io.FileOutputStream(file, append).use { out ->
+                        val buf = ByteArray(64 * 1024)
+                        while (true) {
+                            val n = input.read(buf); if (n < 0) break
+                            out.write(buf, 0, n); done += n
+                            if (done > release.size) { file.delete(); throw IOException("Файл більший, ніж має бути") }
+                            val pct = (done * 100 / total).toInt()
+                            if (pct != shown) { shown = pct; progress("Завантаження $pct%…") }
+                        }
                     }
                 }
             }
-            val sha = digest.digest().joinToString("") { "%02x".format(it) }
-            if (done != release.size || !sha.equals(release.sha256, ignoreCase = true)) {
-                file.delete(); throw IOException("Файл пошкоджений або підмінений — оновлення скасовано")
-            }
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input -> val buf = ByteArray(64 * 1024); while (true) { val n = input.read(buf); if (n < 0) break; digest.update(buf, 0, n) } }
+        val sha = digest.digest().joinToString("") { "%02x".format(it) }
+        if (file.length() != release.size || !sha.equals(release.sha256, ignoreCase = true)) {
+            file.delete(); throw IOException("Файл пошкоджений або підмінений — оновлення скасовано")
         }
         progress("Перевірка підпису…")
         if (!sameSigner(context, file)) { file.delete(); throw IOException("Підпис не збігається — оновлення скасовано") }
@@ -101,5 +113,29 @@ object Updater {
             else info.signatures?.map { it.toCharsString() }?.toSet()
         val a = certs(theirs); val b = certs(mine)
         return !a.isNullOrEmpty() && a == b
+    }
+
+    /**
+     * One update at a time for the whole app, running on its own thread: leaving the settings screen
+     * doesn't stop or lose it, and coming back shows where it is.
+     */
+    object Runner {
+        @Volatile var progress: String? = null; private set
+        @Volatile var error: String? = null; private set
+        @Volatile var running = false; private set
+
+        /** Asks the hub for the newest release (the remembered one may be gone) and installs it. */
+        fun start(context: Context, prefs: SharedPreferences) {
+            synchronized(this) { if (running) return; running = true; error = null; progress = "Перевірка…" }
+            Thread {
+                try {
+                    val newest = runCatching { check(prefs) }.getOrElse { available(prefs) }
+                    if (newest != null) install(context.applicationContext, newest) { progress = it }
+                    progress = null
+                } catch (e: Exception) {
+                    progress = null; error = e.message ?: "Не вдалося — перевірте інтернет"
+                } finally { running = false }
+            }.apply { isDaemon = true }.start()
+        }
     }
 }

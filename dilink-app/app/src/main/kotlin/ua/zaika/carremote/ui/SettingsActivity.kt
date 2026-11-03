@@ -268,39 +268,55 @@ class SettingsActivity : Activity() {
         val status = TextView(this).apply { textSize = 16f; typeface = sfSemibold; setPadding(dpv(16), dpv(16), dpv(16), dpv(4)) }
         val notes = TextView(this).apply { setTextColor(Ui.text2c(context)); textSize = 13f; typeface = sf; setPadding(dpv(16), dpv(2), dpv(16), dpv(6)) }
         val action = TextView(this).apply { setTextColor(Ui.BLUE); textSize = 18f; typeface = sfSemibold; setPadding(dpv(16), dpv(12), dpv(16), dpv(16)) }
-        var busy = false
+        val runner = ua.zaika.carremote.update.Updater.Runner
+        var checking = false
         fun render(msg: String? = null, color: Int = Ui.textc(this)) {
             val rel = ua.zaika.carremote.update.Updater.available(prefs)
-            if (msg != null) { status.text = msg; status.setTextColor(color) }
-            else if (rel != null) { status.text = "Доступна версія ${rel.name}"; status.setTextColor(Ui.ORANGE) }
-            else { status.text = "Версія ${ua.zaika.carremote.BuildConfig.VERSION_NAME} · встановлено останню"; status.setTextColor(Ui.GREEN) }
+            val busy = checking || runner.running
+            when {
+                runner.running -> { status.text = runner.progress ?: "Зачекайте…"; status.setTextColor(Ui.ORANGE) }
+                msg != null -> { status.text = msg; status.setTextColor(color) }
+                runner.error != null -> { status.text = runner.error; status.setTextColor(Ui.RED) }
+                rel != null -> { status.text = "Доступна версія ${rel.name}"; status.setTextColor(Ui.ORANGE) }
+                else -> { status.text = "Версія ${ua.zaika.carremote.BuildConfig.VERSION_NAME} · встановлено останню"; status.setTextColor(Ui.GREEN) }
+            }
             notes.text = rel?.notes.orEmpty(); notes.visibility = if (rel != null && rel.notes.isNotBlank()) View.VISIBLE else View.GONE
             action.text = when { busy -> "Зачекайте…"; rel != null -> "Оновити до ${rel.name} →"; else -> "Перевірити оновлення" }
             action.alpha = if (busy) 0.5f else 1f
         }
-        fun work(job: () -> Unit) {
-            if (busy) return
-            busy = true; render(status.text.toString(), status.currentTextColor)
+        fun check() {
+            if (checking || runner.running) return
+            checking = true; render()
             Thread {
-                try { job() }
-                catch (e: Exception) { runOnUiThread { busy = false; render(e.message ?: "Не вдалося — перевірте інтернет", Ui.RED) } }
+                val r = runCatching { ua.zaika.carremote.update.Updater.check(prefs) }
+                runOnUiThread {
+                    checking = false
+                    if (r.isFailure) render("Не вдалося — перевірте інтернет", Ui.RED)
+                    else if (r.getOrNull() == null) render("Версія ${ua.zaika.carremote.BuildConfig.VERSION_NAME} · встановлено останню", Ui.GREEN)
+                    else render()
+                }
             }.start()
         }
         action.setOnClickListener {
-            val rel = ua.zaika.carremote.update.Updater.available(prefs)
-            if (rel == null) work {
-                val found = ua.zaika.carremote.update.Updater.check(prefs)
-                runOnUiThread { busy = false; if (found == null) render("Версія ${ua.zaika.carremote.BuildConfig.VERSION_NAME} · встановлено останню", Ui.GREEN) else render() }
-            } else work {
-                // Ask the hub again first: the remembered release may have been replaced (and its file removed) since.
-                val newest = runCatching { ua.zaika.carremote.update.Updater.check(prefs) }.getOrElse { rel }
-                if (newest == null) { runOnUiThread { busy = false; render("Версія ${ua.zaika.carremote.BuildConfig.VERSION_NAME} · встановлено останню", Ui.GREEN) }; return@work }
-                ua.zaika.carremote.update.Updater.install(applicationContext, newest) { p -> runOnUiThread { render(p, Ui.ORANGE) } }
-            }
+            if (checking || runner.running) return@setOnClickListener
+            // The download runs on its own: leaving this screen doesn't stop it, and a broken one resumes.
+            if (ua.zaika.carremote.update.Updater.available(prefs) == null) check()
+            else { runner.start(applicationContext, prefs); render() }
         }
         render()
         // Opening the screen refreshes what's available, so it never offers a release that's gone.
-        Thread { if (runCatching { ua.zaika.carremote.update.Updater.check(prefs) }.isSuccess) runOnUiThread { if (!busy) render() } }.start()
+        if (!runner.running) Thread { if (runCatching { ua.zaika.carremote.update.Updater.check(prefs) }.isSuccess) runOnUiThread { if (!checking) render() } }.start()
+        // Follow a running download's progress while this screen is open.
+        val tick = object : Runnable {
+            var wasRunning = runner.running
+            override fun run() {
+                if (!status.isAttachedToWindow) return
+                if (runner.running || wasRunning) { if (!checking) render() }
+                wasRunning = runner.running
+                status.postDelayed(this, 500)
+            }
+        }
+        status.post(tick)
         return card(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             listOf(status, notes, action).forEach { addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)) }
