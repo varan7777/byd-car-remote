@@ -26,13 +26,14 @@ data class AirThreat(
     val path: List<Pair<Double, Double>> = emptyList(), // positions reported over the last 30 min, oldest first
     val trail: List<Triple<Double, Double, Long>> = emptyList(), // NEPTUN's own earlier fixes (lat, lon, time)
     val source: String = "neptun",    // "neptun" or "airforce" (placed from an Air Force post)
+    val jetSeen: Boolean = false,     // once known to be a jet, it stays one ([TrackMemory])
 ) {
     /**
      * A jet Shahed (Geran-3). NEPTUN types it as a plain "uav" and only sometimes says so in the
      * title, so the Air Force channel ([AirForceFeed]) and its speed decide too: a Shahed cruises at 150–200 km/h, the jet one at 500+.
      */
     val jet: Boolean get() = type == "uav" &&
-        (airForce != null || JET_TITLE.containsMatchIn(title + " " + explanation) || (speedKmh ?: 0.0) >= JET_KMH)
+        (jetSeen || airForce != null || JET_TITLE.containsMatchIn(title + " " + explanation) || (speedKmh ?: 0.0) >= JET_KMH)
 
     /** Minutes since NEPTUN last confirmed the position, or null if it gave no time. */
     fun ageMin(now: Long = System.currentTimeMillis()): Int? = updatedMs?.let { ((now - it) / 60_000).toInt().coerceAtLeast(0) }

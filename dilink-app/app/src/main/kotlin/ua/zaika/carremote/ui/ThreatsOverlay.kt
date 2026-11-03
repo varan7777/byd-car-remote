@@ -25,17 +25,24 @@ import kotlin.math.min
  */
 class ThreatsOverlay : Overlay() {
 
-    private class Anchor(val lat: Double, val lon: Double, val sinceMs: Long)
+    /** A reported position; (fromLat, fromLon) is where the marker stood when it came, to glide from. */
+    private class Anchor(val lat: Double, val lon: Double, val sinceMs: Long, val fromLat: Double = lat, val fromLon: Double = lon)
     private class Pt(val lat: Double, val lon: Double, val tMs: Long)
 
     var threats: List<AirThreat> = emptyList()
         set(value) {
             val now = System.currentTimeMillis()
             val nextAnchors = HashMap<String, Anchor>(value.size)
+            val shown = field.associateBy { it.id }
             for (t in value) {
                 val prev = anchors[t.id]
                 nextAnchors[t.id] = if (prev != null && prev.lat == t.lat && prev.lon == t.lon) prev
-                else Anchor(t.lat, t.lon, now)
+                else {
+                    // A new report moves the marker over a few seconds from where it is drawn, not in a jump.
+                    val at = shown[t.id]?.let { predict(it, now) }
+                    if (at != null && Geo.distanceKm(at.first, at.second, t.lat, t.lon) < 150) Anchor(t.lat, t.lon, now, at.first, at.second)
+                    else Anchor(t.lat, t.lon, now)
+                }
                 // Append to the trail only when NEPTUN actually moved the track.
                 val h = history.getOrPut(t.id) { ArrayDeque() }
                 val last = h.lastOrNull()
@@ -227,6 +234,14 @@ class ThreatsOverlay : Overlay() {
     /** Dead-reckoned head position: advance the anchor along the heading, capped so it can't run away. */
     private fun predict(t: AirThreat, now: Long): Pair<Double, Double> {
         val a = anchors[t.id] ?: return t.lat to t.lon
+        val (lat, lon) = reckon(t, a, now)
+        val g = (now - a.sinceMs).toDouble() / GLIDE_MS
+        if (g >= 1 || (a.fromLat == a.lat && a.fromLon == a.lon)) return lat to lon
+        val e = g * g * (3 - 2 * g) // ease in and out
+        return a.fromLat + (lat - a.fromLat) * e to a.fromLon + (lon - a.fromLon) * e
+    }
+
+    private fun reckon(t: AirThreat, a: Anchor, now: Long): Pair<Double, Double> {
         // Course: NEPTUN's, else from the last two reported positions.
         val h = t.heading?.toDouble() ?: t.path.takeLast(2).takeIf { it.size == 2 }?.let { (p, q) ->
             if (p == q) null else Geo.bearingDeg(p.first, p.second, q.first, q.second)
@@ -283,6 +298,7 @@ class ThreatsOverlay : Overlay() {
     private companion object {
         const val STALE_MIN = 15
         val KNOWN = setOf("uav", "jet_uav", "recon", "fpv", "missile", "ballistic", "kab", "mig31k")
+        const val GLIDE_MS = 3_000.0        // how long a marker takes to move to a newly reported position
         const val MAX_DRIFT_MS = 360_000L   // cap head extrapolation at 6 min past the last report
         const val MAX_TRAIL = 40            // trail points kept per track
         const val TRAIL_AGE_MS = 900_000L   // drop trail points older than 15 min

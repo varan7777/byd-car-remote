@@ -189,44 +189,59 @@ class AirAlertMonitor(
     private fun merge(neptun: List<AirThreat>, af: List<Sighting>): List<AirThreat> {
         val out = neptun.toMutableList()
         val used = HashSet<Int>()
+        absorbed.clear()
         for (chain in chains(af).sortedByDescending { it.last().atMs }) {
             val s = chain.last()
+            val afId = "af:${chainId(chain.first())}"
             // How far the same drone can be from NEPTUN's (lagging) fix: its speed × the lag, 30–90 km.
             fun reach(t: AirThreat): Double {
                 val lagH = kotlin.math.abs(s.atMs - (t.updatedMs ?: s.atMs)) / 3_600_000.0
                 val kmh = if (s.jet) 500.0 else if (s.kind in DRONES) 180.0 else 700.0
                 return (kmh * lagH + 15).coerceIn(30.0, 90.0).coerceAtLeast(s.uncertaintyKm)
             }
-            val i = out.withIndex().filter { (j, t) ->
+            // A drone once matched to a NEPTUN track stays with it, so it doesn't split in two
+            // the moment NEPTUN's (lagging) fix drifts out of reach.
+            val linked = trackOf[afId]?.let { id -> out.indexOfFirst { it.id == id && sameKind(it.type, s.kind) } }
+                ?.takeIf { it >= 0 && it !in used && Geo.distanceKm(out[it].lat, out[it].lon, s.lat, s.lon) <= 150 }
+            val i = linked ?: out.withIndex().filter { (j, t) ->
                 j !in used && t.source == "neptun" && sameKind(t.type, s.kind) &&
                     Geo.distanceKm(t.lat, t.lon, s.lat, s.lon) <= reach(t)
             }.minByOrNull { (_, t) -> Geo.distanceKm(t.lat, t.lon, s.lat, s.lon) }?.index
             if (i != null) {
                 used += i
                 val t = out[i]
+                trackOf[afId] = t.id; absorbed += afId
                 val fresher = s.uncertaintyKm <= 20 && s.atMs > (t.updatedMs ?: 0)
                 out[i] = t.copy(
                     airForce = s.text.takeIf { s.jet } ?: t.airForce,
                     explanation = t.explanation.ifBlank { s.text },
                     lat = if (fresher) s.lat else t.lat, lon = if (fresher) s.lon else t.lon,
                     updatedMs = if (fresher) s.atMs else t.updatedMs,
-                    heading = t.heading ?: s.headingDeg,
+                    uncertaintyKm = if (fresher) s.uncertaintyKm else t.uncertaintyKm,
+                    positionQuality = if (fresher) TrackMemory.AIR_FORCE else t.positionQuality,
+                    heading = if (fresher) s.headingDeg ?: t.heading else t.heading ?: s.headingDeg,
                 )
                 continue
             }
             out += AirThreat(
-                id = "af:${chainId(chain.first())}", type = s.kind, title = if (s.jet) "Реактивний БпЛА" else "",
+                id = afId, type = s.kind, title = if (s.jet) "Реактивний БпЛА" else "",
                 region = "", locality = s.placeName, lat = s.lat, lon = s.lon,
                 heading = s.headingDeg ?: chain.takeLast(2).takeIf { it.size == 2 }?.let { (p, q) ->
                     if (p.lat == q.lat && p.lon == q.lon) null else Geo.bearingDeg(p.lat, p.lon, q.lat, q.lon).toInt() },
                 confidence = if (s.uncertaintyKm <= 15) "medium" else "low", sourceCount = chain.size,
                 uncertaintyKm = s.uncertaintyKm, explanation = s.text, updatedMs = s.atMs,
-                positionQuality = "Повітряні сили", airForce = s.text.takeIf { s.jet }, source = "airforce",
+                positionQuality = TrackMemory.AIR_FORCE, airForce = s.text.takeIf { s.jet }, source = "airforce",
                 trail = chain.map { Triple(it.lat, it.lon, it.atMs) },
             )
         }
+        if (trackOf.size > 500) trackOf.clear()
         return out
     }
+
+    /** Which NEPTUN track each Air Force drone was matched to; and those matched this poll. */
+    private val trackOf = HashMap<String, String>()
+    private val absorbed = HashSet<String>()
+    private val memory = TrackMemory()
 
     /** A position too old to sound the alarm for: 15 min for a Shahed, 5 for anything jet-fast. */
     private fun stale(t: AirThreat): Boolean {
@@ -326,7 +341,9 @@ class AirAlertMonitor(
             return AirState(fix, null, null, false, emptyList(), null, 0, null,
                 "нема зв'язку з NEPTUN (${e?.message ?: e?.javaClass?.simpleName})")
         }
-        val list = withSpeed(merge(neptun.getOrNull()?.list ?: emptyList(), af), keepOthers = neptun.isFailure)
+        // Memory before speed: a fix the map has already moved past must not enter the track history.
+        val merged = memory.apply(merge(neptun.getOrNull()?.list ?: emptyList(), af), nowMs(), absorbed, neptunDown = neptun.isFailure)
+        val list = withSpeed(merged, keepOthers = neptun.isFailure)
         saveHistory()
         val serverTime = neptun.getOrNull()?.serverTime
         val alerts = all.oblasts
