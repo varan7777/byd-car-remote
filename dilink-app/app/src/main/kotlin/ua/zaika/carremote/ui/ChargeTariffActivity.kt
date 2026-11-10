@@ -24,8 +24,7 @@ class ChargeTariffActivity : Activity() {
         val cur = prefs.getString(ua.zaika.carremote.CarRemoteService.KEY_CURRENCY, "грн")?.ifBlank { "грн" } ?: "грн"
         val options = buildList {
             ChargeLog.tariff(prefs, "home")?.let { add(Triple("home", "Дім", it)) }
-            ChargeLog.tariff(prefs, "dc1")?.let { add(Triple("dc1", "Швидка 1", it)) }
-            ChargeLog.tariff(prefs, "dc2")?.let { add(Triple("dc2", "Швидка 2", it)) }
+            ChargeLog.DC_KEYS.forEach { k -> ChargeLog.tariff(prefs, k)?.let { add(Triple(k, ChargeLog.tariffName(k), it)) } }
         }.let { all -> if (past) all else all.filter { it.first != "home" } }
 
         val box = LinearLayout(this).apply {

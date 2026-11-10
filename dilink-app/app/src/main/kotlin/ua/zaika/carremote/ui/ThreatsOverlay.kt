@@ -280,6 +280,28 @@ class ThreatsOverlay : Overlay() {
         drawThreat(canvas, kind, cx, cy, null, size)
     }
 
+    /**
+     * A legend sample of what can sit around a marker, drawn as on the map: «ПС» (from the Air Force
+     * channel), «×3» (a group), a grey marker (old data) or the dashed «курс сюди» ring (only the target is known).
+     */
+    fun drawSample(canvas: Canvas, sample: String, cx: Float, cy: Float, size: Float, density: Float) {
+        outline.strokeWidth = 1.5f * density
+        label.textSize = 11f * density
+        label.setShadowLayer(2.5f * density, 0f, 0f, 0xE6000000.toInt())
+        val c = colorFor("uav")
+        if (sample == "target") {
+            ring.color = c
+            ring.strokeWidth = 2.5f * density
+            ring.pathEffect = android.graphics.DashPathEffect(floatArrayOf(5f * density, 4f * density), 0f)
+            canvas.drawCircle(cx, cy, size, ring)
+            return
+        }
+        dot.color = if (sample == "stale") greyed(c) else c
+        drawThreat(canvas, "uav", cx, cy, null, size)
+        val badge = when (sample) { "group" -> "×3"; "airforce" -> "ПС"; else -> return }
+        canvas.drawText(badge, cx + size + 3f * density, cy + 4f * density, label)
+    }
+
     /** NEPTUN types a jet Shahed as a plain "uav"; its title or speed tells it apart ([AirThreat.jet]). */
     private fun kindOf(t: AirThreat): String = if (t.jet) "jet_uav" else t.type
 

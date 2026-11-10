@@ -110,22 +110,21 @@ class CommandRouter(
     /** Telegram question for a fast charge that has just started: which tariff to bill it at. */
     fun tariffPrompt(start: Long): Reply {
         val cur = prefs.getString(CarRemoteService.KEY_CURRENCY, "грн")?.ifBlank { "грн" } ?: "грн"
-        val names = mapOf("dc1" to "Швидка 1", "dc2" to "Швидка 2")
         return Reply(
             "⚡ Почалась швидка зарядка. За яким тарифом її рахувати?\nЯкщо не обрати, рахується дорожчий.",
             InlineKeyboard(ChargeLog.dcTariffs(prefs).map { (k, price) ->
-                listOf(Button("${names[k]} · ${"%.2f".format(price)} $cur/кВт·год", "tariff_${start}_$k"))
+                listOf(Button("${ChargeLog.tariffName(k)} · ${"%.2f".format(price)} $cur/кВт·год", "tariff_${start}_$k"))
             }),
         )
     }
 
     private fun chooseTariff(arg: String): String {
         val start = arg.substringBefore('_').toLongOrNull() ?: return "Не вдалося записати тариф."
-        val key = arg.substringAfter('_').takeIf { it == "dc1" || it == "dc2" } ?: return "Не вдалося записати тариф."
+        val key = arg.substringAfter('_').takeIf { it in ChargeLog.DC_KEYS } ?: return "Не вдалося записати тариф."
         // Still charging: the recorder bills it on finish. Already over: re-bill the saved session.
         prefs.edit().putString(ChargeLog.PREF_CHOSEN + start, key).apply()
         context?.let { ChargeLog.setTariff(it, start, key) }
-        return "Записано: ${if (key == "dc1") "Швидка 1" else "Швидка 2"}."
+        return "Записано: ${ChargeLog.tariffName(key)}."
     }
 
     private fun status(): String = if (car.isReachable()) StatusReport.build(car) else noAdb()

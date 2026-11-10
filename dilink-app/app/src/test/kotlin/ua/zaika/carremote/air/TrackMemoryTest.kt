@@ -61,6 +61,14 @@ class TrackMemoryTest {
         assertEquals(listOf("n1"), out.map { it.id })
     }
 
+    @Test fun aJetKnownOnlyByItsSpeedStaysAJet() {
+        val m = TrackMemory()
+        m.apply(listOf(track("n1", 49.0, 28.0, t0)), t0)
+        m.markJets(listOf("n1")) // the poll measured 400 km/h
+        val after = m.apply(listOf(track("n1", 49.0, 27.9, t0 + min)), t0 + min).single()
+        assertTrue(after.jet)
+    }
+
     @Test fun neptunTracksDisappearWithNeptunButStayWhenItIsDown() {
         val m = TrackMemory()
         m.apply(listOf(track("n1", 49.0, 28.0, t0)), t0)

@@ -344,6 +344,7 @@ class AirAlertMonitor(
         // Memory before speed: a fix the map has already moved past must not enter the track history.
         val merged = memory.apply(merge(neptun.getOrNull()?.list ?: emptyList(), af), nowMs(), absorbed, neptunDown = neptun.isFailure)
         val list = withSpeed(merged, keepOthers = neptun.isFailure)
+        memory.markJets(list.filter { it.jet }.map { it.id })
         saveHistory()
         val serverTime = neptun.getOrNull()?.serverTime
         val alerts = all.oblasts

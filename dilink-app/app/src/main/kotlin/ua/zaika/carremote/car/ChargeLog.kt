@@ -9,7 +9,7 @@ import java.io.File
 
 /**
  * One charging session as the app saw it. [priceKey] names the tariff it is billed at:
- * "home", "dc1" or "dc2" (the owner can change it later); [price] is that tariff when the
+ * "home", "dc1", "dc2" or "dc3" (the owner can change it later); [price] is that tariff when the
  * session was recorded, so later tariff edits do not rewrite history unless re-chosen.
  */
 data class ChargeSession(
@@ -78,12 +78,13 @@ object ChargeLog {
         "home" -> prefs.getString(CarRemoteService.KEY_TARIFF, "")
         "dc1" -> prefs.getString(CarRemoteService.KEY_TARIFF_DC1, "")
         "dc2" -> prefs.getString(CarRemoteService.KEY_TARIFF_DC2, "")
+        "dc3" -> prefs.getString(CarRemoteService.KEY_TARIFF_DC3, "")
         else -> null
     }?.replace(',', '.')?.toDoubleOrNull()
 
     /** Fast-charge tariffs the owner has filled in, most expensive first. */
     fun dcTariffs(prefs: SharedPreferences): List<Pair<String, Double>> =
-        listOf("dc1", "dc2").mapNotNull { k -> tariff(prefs, k)?.let { k to it } }.sortedByDescending { it.second }
+        DC_KEYS.mapNotNull { k -> tariff(prefs, k)?.let { k to it } }.sortedByDescending { it.second }
 
     /** Default tariff for a new session: home for AC, the dearer fast-charge tariff for DC. */
     fun defaultKey(prefs: SharedPreferences, dc: Boolean): String? =
@@ -182,6 +183,13 @@ object ChargeLog {
             lastMs = j.optLong("last", startMs); idleSince = j.optLong("idle", 0L)
             km0 = if (j.isNull("km0")) null else j.optInt("km0")
         }
+    }
+
+    val DC_KEYS = listOf("dc1", "dc2", "dc3")
+
+    /** How a tariff is called on screen and in Telegram. */
+    fun tariffName(key: String?): String = when (key) {
+        "home" -> "Дім"; "dc1" -> "Швидка 1"; "dc2" -> "Швидка 2"; "dc3" -> "Швидка 3"; else -> "—"
     }
 
     /** The session in progress, so a restart picks it up. */

@@ -11,15 +11,21 @@ import java.io.File
  * Fed by the service on every NEPTUN poll; read by the alert screen.
  */
 object AlertLog {
-    data class Entry(val startMs: Long, val endMs: Long?, val maxRank: Int, val nearIds: Set<String>, val lastMs: Long = startMs) {
+    /**
+     * @param lastMs the last poll that confirmed the alert: where the entry ends.
+     * @param aliveMs the last poll that kept it open at all, a confirmation or a failed check alike.
+     */
+    data class Entry(val startMs: Long, val endMs: Long?, val maxRank: Int, val nearIds: Set<String>,
+                     val lastMs: Long = startMs, val aliveMs: Long = lastMs) {
         fun toJson() = JSONObject().put("start", startMs).put("end", endMs ?: JSONObject.NULL)
-            .put("rank", maxRank).put("near", JSONArray(nearIds.toList())).put("last", lastMs)
+            .put("rank", maxRank).put("near", JSONArray(nearIds.toList())).put("last", lastMs).put("alive", aliveMs)
 
         companion object {
             fun from(j: JSONObject) = Entry(
                 j.getLong("start"), if (j.isNull("end")) null else j.getLong("end"), j.optInt("rank"),
                 j.optJSONArray("near")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() } ?: emptySet(),
                 j.optLong("last", j.getLong("start")),
+                j.optLong("alive", j.optLong("last", j.getLong("start"))),
             )
         }
     }
@@ -48,6 +54,10 @@ object AlertLog {
      * Opens, extends or closes the current entry from the latest state; call on every successful poll.
      * An entry ends at the last moment it was still an alert, once it has been calm for a few minutes
      * (or polls stopped — the car slept) — so one alert is one row, not dozens.
+     *
+     * While official alerts can't be fetched the state keeps the last known level, which is no proof
+     * the alert still goes on: such polls keep the entry open but don't move its end, so on a flaky
+     * line the journal still shows when the alert really ended.
      */
     fun track(context: Context, s: AirState) = synchronized(lock) {
         val rank = s.alarmRank()
@@ -56,15 +66,17 @@ object AlertLog {
         val near = s.within.map { it.first.id }.toSet()
         var open = list.firstOrNull { it.endMs == null }
         var changed = false
-        if (open != null && now - open.lastMs > GAP_MS) {
+        if (open != null && now - open.aliveMs > GAP_MS) {
             list[list.indexOf(open)] = open.copy(endMs = open.lastMs); open = null; changed = true
         }
-        if (rank > 0) {
+        // A threat inside the radius is live news even when the official levels are stale.
+        val confirmed = rank > 0 && (!s.alertsUnknown || rank == 3)
+        if (confirmed) {
             if (open == null) list.add(Entry(now, null, rank, near, now))
-            else list[list.indexOf(open)] = open.copy(maxRank = maxOf(open.maxRank, rank), nearIds = open.nearIds + near, lastMs = now)
+            else list[list.indexOf(open)] = open.copy(maxRank = maxOf(open.maxRank, rank), nearIds = open.nearIds + near, lastMs = now, aliveMs = now)
             changed = true
         } else if (open != null && s.alertsUnknown) {
-            list[list.indexOf(open)] = open.copy(lastMs = now); changed = true // unknown isn't calm
+            list[list.indexOf(open)] = open.copy(aliveMs = now); changed = true // unknown isn't calm
         } else if (open != null && now - open.lastMs >= ua.zaika.carremote.CarRemoteService.CALM_HOLD_MS) {
             list[list.indexOf(open)] = open.copy(endMs = open.lastMs); changed = true
         }

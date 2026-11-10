@@ -249,7 +249,7 @@ class AirAlertActivity : Activity() {
                 map.overlays.add(0, Polygon().apply {
                     points = pts
                     // A light tint and a clear edge: the map and town names must stay readable under it.
-                    fillPaint.color = if (level == "yellow") 0x1FF2C230 else 0x1FE24A3B
+                    fillPaint.color = if (level == "yellow") tint(0xF2C230) else tint(0xE24A3B)
                     // Raion edges thin and dashed, so they don't read as oblast borders.
                     outlinePaint.color = if (level == "yellow") 0xCCE0A800.toInt() else 0xCCFF4D4D.toInt()
                     outlinePaint.strokeWidth = 1.5f * resources.displayMetrics.density
@@ -268,7 +268,7 @@ class AirAlertActivity : Activity() {
             while (i < ring.size) { addThinned(pts, ring[i + 1], ring[i]); i += 2 }
             map.overlays.add(0, Polygon().apply {
                 points = pts
-                fillPaint.color = if (alert) 0x1FE24A3B else 0x00000000
+                fillPaint.color = if (alert) tint(0xE24A3B) else 0x00000000
                 outlinePaint.color = if (alert) 0xCCFF4D4D.toInt() else border
                 outlinePaint.strokeWidth = (if (alert) 3.5f else 2.5f) * resources.displayMetrics.density
                 setOnClickListener { _, _, _ -> false } // taps go through to the threat markers
@@ -277,37 +277,45 @@ class AirAlertActivity : Activity() {
         map.invalidate()
     }
 
-    /** What each marker on the map means, drawn with the map's own glyphs. */
+    /**
+     * An alert fill. On the navy night map a faint yellow mixes into grey, so the raions under a
+     * yellow alert looked washed out and the clear ones stood out blue (03.11, near Zhmerynka):
+     * at night the tint is twice as strong, enough to read as yellow or red.
+     */
+    private fun tint(rgb: Int): Int = (if (Ui.isLight(this)) 0x1F000000 else 0x45000000) or rgb
+
+    /** What each marker on the map means, drawn with the map's own glyphs, and what may sit around one. */
     private fun legend(): View {
-        val items = listOf("uav" to "БпЛА (шахед)", "jet_uav" to "Реактивний БпЛА", "recon" to "Розвідник",
+        val kinds = listOf("uav" to "БпЛА (шахед)", "jet_uav" to "Реактивний БпЛА", "recon" to "Розвідник",
             "fpv" to "FPV-дрон", "missile" to "Крилата ракета", "ballistic" to "Балістика",
             "kab" to "КАБ", "mig31k" to "МіГ-31К")
+        val samples = listOf("airforce" to "З каналу Повітряних сил", "group" to "Група дронів",
+            "stale" to "Сірий — давні дані", "target" to "Відома лише ціль (курс сюди)")
         val d = resources.displayMetrics.density
+        val items = kinds.map { (k, n) -> Triple(k, n, false) } + samples.map { (k, n) -> Triple(k, n, true) }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             items.chunked(2).forEach { pair ->
                 addView(LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
-                    pair.forEach { (kind, name) ->
+                    pair.forEach { (kind, name, sample) ->
                         addView(LinearLayout(context).apply {
                             orientation = LinearLayout.HORIZONTAL
                             gravity = Gravity.CENTER_VERTICAL
                             addView(object : View(context) {
-                                override fun onDraw(c: android.graphics.Canvas) =
-                                    threatsOverlay.drawGlyph(c, kind, width / 2f, height / 2f, 10f * d, d)
-                            }, LinearLayout.LayoutParams(dp(30), dp(28)))
+                                override fun onDraw(c: android.graphics.Canvas) {
+                                    val cx = 15f * d; val cy = height / 2f
+                                    if (sample) threatsOverlay.drawSample(c, kind, cx, cy, 10f * d, d)
+                                    else threatsOverlay.drawGlyph(c, kind, cx, cy, 10f * d, d)
+                                }
+                            }, LinearLayout.LayoutParams(dp(44), dp(28)))
                             addView(TextView(context).apply {
                                 text = name; setTextColor(Ui.text2c(context)); textSize = 14f; typeface = sf
-                                setPadding(dp(6), 0, 0, 0)
                             })
                         }, LinearLayout.LayoutParams(0, WRAP, 1f))
                     }
                 })
             }
-            addView(TextView(context).apply {
-                text = "«ПС» — з каналу Повітряних сил, сірий — давні дані, коло — «курс сюди», «×3» — група."
-                setTextColor(Ui.text2c(context)); textSize = 13f; typeface = sf; setPadding(0, dp(6), 0, 0)
-            })
         }
     }
 

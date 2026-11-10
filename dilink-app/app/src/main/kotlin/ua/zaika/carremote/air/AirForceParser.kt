@@ -813,7 +813,12 @@ object AirForceParser {
             ok.firstOrNull { it.role == 'O' && it.type == 'R' }?.let { m ->
                 val r = gaz.regions[m.oblast] ?: return@let
                 if ((m.side ?: -1) >= 0) { val p = r.point(m.side); return listOf(fix(p.first, p.second, 50.0, m.oblast!!)) }
-                // «з Хмельниччини на Рівненщину»: in the oblast it comes from, heading where it goes.
+                // «з Хмельниччини на Рівненщину»: in the oblast it comes from, on the side facing where it
+                // goes (it is on its way out), heading there. Without a destination, only the oblast.
+                if (destPt != null) {
+                    val p = r.point(bearing(r.lat, r.lon, destPt.first, destPt.second))
+                    return listOf(fix(p.first, p.second, 50.0, m.oblast!!))
+                }
                 return listOf(fix(r.lat, r.lon, 60.0, m.oblast!!))
             }
             // 6. Only where it goes. With a side it comes from, it is out on that side; otherwise only the target is known.
@@ -830,6 +835,8 @@ object AirForceParser {
                         else Fix(dp.first, dp.second, 5.0, null, dp, p.name, true, targetOnly = true)
                     } else {
                         val unc = if ((d.side ?: -1) >= 0) 50.0 else 60.0
+                        // «з моря на Одещину»: coming ashore, so on the oblast's southern side.
+                        val originSide = originSide ?: if (sea) 180 else null
                         if (originSide != null) {
                             // «на Київщину з півночі», «на північ Черкащини з півдня»: in that side of the oblast.
                             val (la, lo) = gaz.regions[d.oblast]!!.point(originSide)

@@ -253,6 +253,10 @@ class CarRemoteService : Service() {
                 // More than one fast-charge tariff: ask which one (the dearer one is used if ignored).
                 // On the screen — Android may refuse to open it from the background — and in
                 // Telegram, where the owner standing at the charger sees it anyway.
+                // Android 12 lets a background app open a screen only with the overlay permission; we
+                // have ADB, so grant it to ourselves rather than lose the question (10.11: not shown).
+                if (!Settings.canDrawOverlays(this@CarRemoteService))
+                    runCatching { adb.exec("appops set $packageName SYSTEM_ALERT_WINDOW allow") }
                 runCatching {
                     startActivity(Intent(this@CarRemoteService, ua.zaika.carremote.ui.ChargeTariffActivity::class.java)
                         .putExtra(ua.zaika.carremote.ui.ChargeTariffActivity.EXTRA_START, start)
@@ -487,6 +491,7 @@ class CarRemoteService : Service() {
         const val KEY_TARIFF = "tariff_per_kwh"
         const val KEY_TARIFF_DC1 = "tariff_dc1" // fast-charge option 1
         const val KEY_TARIFF_DC2 = "tariff_dc2" // fast-charge option 2
+        const val KEY_TARIFF_DC3 = "tariff_dc3" // fast-charge option 3 (0 is a real price: a free charger)
         const val KEY_CURRENCY = "currency"
         const val KEY_CAM_TURN = "cam_turn"   // show camera on turn signal
         const val KEY_CAM_DOOR = "cam_door"   // show camera when a door opens

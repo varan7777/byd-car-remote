@@ -143,6 +143,22 @@ class AirForceParserTest {
         }
     }
 
+    @Test fun oblastOriginSitsOnTheSideFacingTheDestination() {
+        val s = one("🛵 БпЛА з Хмельниччини на Рівненщину.")
+        assertEquals("хмельницька", oblastOf(s))
+        assertTrue("north of the oblast's middle: $s", s.lat > 49.8)
+        assertTrue(angle(s.headingDeg!!, 340) <= 40)
+    }
+
+    @Test fun seaOriginOntoAnOblastComesAshoreInTheSouth() {
+        for ((text, ob) in listOf("🛵 БпЛА з моря на Одещину." to "одеська", "🛵 БпЛА з моря курсом на Миколаївщину" to "миколаївська")) {
+            val s = one(text)
+            assertEquals(ob, oblastOf(s))
+            assertTrue("a position, not just a target: $s", !s.targetOnly)
+            assertEquals(0, s.headingDeg)
+        }
+    }
+
     @Test fun placeQualifiedByOblastInParentheses() {
         val s = one("🛵 Ударні БпЛА з Київщини (Тетіїв) ➡️ на Вінниччину.")
         assertEquals("uav", s.kind); assertTrue(!s.jet)

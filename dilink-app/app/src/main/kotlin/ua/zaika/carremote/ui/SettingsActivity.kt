@@ -70,6 +70,7 @@ class SettingsActivity : Activity() {
                 inputRow("Дім, за кВт·год", CarRemoteService.KEY_TARIFF, "напр. 4.32", decimal = true),
                 inputRow("Швидка 1, за кВт·год", CarRemoteService.KEY_TARIFF_DC1, "напр. 18", decimal = true),
                 inputRow("Швидка 2, за кВт·год", CarRemoteService.KEY_TARIFF_DC2, "напр. 25", decimal = true),
+                inputRow("Швидка 3, за кВт·год", CarRemoteService.KEY_TARIFF_DC3, "напр. 0", decimal = true),
                 inputRow("Валюта", CarRemoteService.KEY_CURRENCY, "грн", numeric = false, defaultText = "грн"),
             ), note("Витрати на екрані «Заряджання» = кВт·год × тариф.")) },
             "Голос тривоги" to { listOf(

@@ -385,7 +385,7 @@ class TripsActivity : Activity() {
             c[1].text = if (s.dc) "DC" else "AC"; c[1].setTextColor(if (s.dc) pal.mid else pal.good)
             c[2].text = if (s.socStart != null && s.socEnd != null) "%.0f→%.0f%%".format(s.socStart, s.socEnd) else ""
             c[3].text = "%.1f".format(s.kwh)
-            c[4].text = when (s.priceKey) { "home" -> "Дім"; "dc1" -> "Швидка 1"; "dc2" -> "Швидка 2"; else -> "—" }
+            c[4].text = ChargeLog.tariffName(s.priceKey)
             c[5].text = s.cost?.let { "%.0f".format(it) } ?: "—"
             c[5].setTextColor(pal.accent)
         }

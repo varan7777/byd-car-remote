@@ -32,6 +32,14 @@ class TrackMemory {
         return out + lingering
     }
 
+    /**
+     * Tracks recognised as jets only after [apply], by their measured speed: remember that too, or a
+     * jet whose speed estimate dips on a sparse poll turns back into a plain Shahed.
+     */
+    fun markJets(ids: Collection<String>) {
+        for (id in ids) held[id]?.let { if (!it.jet) held[id] = it.copy(jetSeen = true) }
+    }
+
     private fun hold(t: AirThreat, m: AirThreat): AirThreat {
         val tAt = t.updatedMs ?: 0; val mAt = m.updatedMs ?: 0
         val keepShown = tAt < mAt || behind(t, m)
