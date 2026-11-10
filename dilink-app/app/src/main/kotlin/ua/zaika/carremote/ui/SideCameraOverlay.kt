@@ -36,6 +36,8 @@ class SideCameraOverlay(private val context: Context) : AutoCloseable {
     private val surfaces = mutableMapOf<CameraSide, Surface>()
     private val frames = mutableMapOf<CameraSide, Long>()
     private var desired: CameraSide? = null
+    /** The side the driver closed with ✕: stays closed until that turn signal or door is over. */
+    private var muted: CameraSide? = null
     private var openedAt = 0L
     private var retryAfter = 0L
     private var generation = 0
@@ -53,7 +55,9 @@ class SideCameraOverlay(private val context: Context) : AutoCloseable {
         requestedAt = SystemClock.elapsedRealtime()
         val previous = desired
         desired = side
-        if (side == null) { if (root != null) dismiss(); return }
+        if (side == null) { muted = null; if (root != null) dismiss(); return }
+        if (side != muted) muted = null
+        if (side == muted) { if (root != null) dismiss(); return }
         if (previous != side && root != null) dismiss()
         if (SystemClock.elapsedRealtime() < retryAfter) return
         if (!Settings.canDrawOverlays(context) ||
@@ -103,6 +107,13 @@ class SideCameraOverlay(private val context: Context) : AutoCloseable {
             setTextColor(Color.WHITE); setBackgroundColor(0xAA000000.toInt())
             textSize = 15f; setPadding(12, 5, 12, 5)
         }.also { panel.addView(it, FrameLayout.LayoutParams(-1, -2, Gravity.TOP)) }
+        // ✕ in the corner of the title bar: the driver can shut the window when it is in the way.
+        val d = uiContext.resources.displayMetrics.density
+        TextView(uiContext).apply {
+            text = "✕"; setTextColor(Color.WHITE); textSize = 20f; gravity = Gravity.CENTER
+            setBackgroundColor(0xAA000000.toInt())
+            setOnClickListener { muted = desired; dismiss() }
+        }.also { panel.addView(it, FrameLayout.LayoutParams((48 * d).toInt(), (40 * d).toInt(), Gravity.TOP or Gravity.END)) }
         // Large 16:9 view on the left of the screen.
         val m = uiContext.resources.displayMetrics
         val margin = (16 * m.density).toInt()
