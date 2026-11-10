@@ -265,10 +265,7 @@ class CarRemoteService : Service() {
                 if (owner != 0L) runCatching { bot.send(owner, router.tariffPrompt(start)) }
             }
             while (isActive) {
-                if (car.isReachable()) {
-                    runCatching { recorder.poll(car) }
-                    runCatching { ua.zaika.carremote.car.CleanAir.tick(car, prefs) }
-                }
+                if (car.isReachable()) runCatching { recorder.poll(car) }
                 delay(20_000) // catch the cable going in within seconds, so the question comes at once
             }
         }

@@ -108,6 +108,10 @@ object Fids {
     const val PM25_LEVEL_IN = 1331691568       // int: 1 excellent .. 6 serious, 0 invalid
     const val PM25_LEVEL_OUT = 1331691571
     const val PM25_ONLINE = 1331691520         // int: 1 on, 2 off, 0 none
+    // The factory quick clean, dev 1000. Its module answers on Artem's car (3DA online = 1)
+    // although the PM2.5 sensor and ionizer are absent.
+    const val QUICK_CLEAN_AIR = 1033895944     // int: 1 running, 2 finished, 3 stopped, 0 idle
+    const val QUICK_CLEAN_AIR_SET = 1330642960 // write 1 = start
     // Negative-ion generator. Status unreadable on this car (likely no hardware) — the control
     // is best-effort: the write is accepted but its effect can't be confirmed here.
     const val PM25_ANION_STATE_SET = 1337982994

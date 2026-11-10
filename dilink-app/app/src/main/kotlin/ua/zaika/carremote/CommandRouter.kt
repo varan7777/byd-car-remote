@@ -98,7 +98,6 @@ class CommandRouter(
                 ),
             ) else run(Controls.TRUNK_OPEN)
             "trunk_open_do" -> run(Controls.TRUNK_OPEN)
-            "clean_air" -> if (!car.isReachable()) Reply(noAdb()) else Reply(ua.zaika.carremote.car.CleanAir.start(car, prefs))
 
             else -> when {
                 token.startsWith("setlow_") -> Reply(setLow(token.removePrefix("setlow_").toIntOrNull()))
