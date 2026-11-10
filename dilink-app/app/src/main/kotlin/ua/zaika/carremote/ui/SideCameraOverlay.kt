@@ -114,11 +114,14 @@ class SideCameraOverlay(private val context: Context) : AutoCloseable {
             setBackgroundColor(0xAA000000.toInt())
             setOnClickListener { muted = desired; dismiss() }
         }.also { panel.addView(it, FrameLayout.LayoutParams((48 * d).toInt(), (40 * d).toInt(), Gravity.TOP or Gravity.END)) }
-        // Large 16:9 view on the left of the screen.
+        // Large 16:9 view over the charge figure on the right of the dashboard, so the control
+        // tiles on the left stay free (Artem, 10.11).
         val m = uiContext.resources.displayMetrics
         val margin = (16 * m.density).toInt()
         val width = (m.widthPixels * 0.48f).toInt().coerceAtLeast(360)
         val height = width * 9 / 16
+        val fromRight = ((m.widthPixels * 0.325f) - width / 2f).toInt().coerceAtLeast(margin)
+        val up = (m.heightPixels * 0.09f).toInt()
         val params = WindowManager.LayoutParams(
             width, height, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             // DiLink clamps NOT_TOUCHABLE overlays to alpha=0.8: camera frames would blend
@@ -126,7 +129,7 @@ class SideCameraOverlay(private val context: Context) : AutoCloseable {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT,
-        ).apply { gravity = Gravity.START or Gravity.CENTER_VERTICAL; x = margin; y = 0 }
+        ).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; x = fromRight; y = -up }
         windowParams = params
         runCatching { wm.addView(panel, params) }.onFailure {
             Log.w(TAG, "cannot attach camera overlay", it); dismiss()
