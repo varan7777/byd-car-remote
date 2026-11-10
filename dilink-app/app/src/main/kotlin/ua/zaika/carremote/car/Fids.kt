@@ -28,6 +28,11 @@ object Fids {
     const val LIFETIME_KWH = 1032871984 // float, kWh total throughput (for trip energy)
     const val BATTERY_TEMP_MAX = 1148190752 // int, °C + 40
     const val BATTERY_TEMP_MIN = 1148190736 // int, °C + 40
+    // Read on Artem's Song Plus 10.11 (signal scan), meanings from the BYD SDK.
+    const val ELEC_RANGE = 1246765118 // int, km the car predicts; 1000+ = not valid
+    const val CELL_V_MAX = 1147142192 // int, mV: the strongest cell of the pack
+    const val CELL_V_MIN = 1147142160 // int, mV: the weakest cell
+    const val CHARGE_POWER_ALLOW = 877658136 // int, 0.1 kW: what the battery accepts right now
 
     // Charging, dev 1009
     const val GUN_CONNECT_STATE = 876609586 // int: 1 none, 2 AC, 3 DC, 4 AC+DC, 5 V2L
@@ -60,6 +65,23 @@ object Fids {
     // Daytime running lights: state 1=on 2=off (0 = not reported); write 1 = on, 2 = off.
     const val DRL_STATE = 1231040528
     const val DRL_SET = 1125122118
+
+    // Instrument cluster warning lamps, dev 1007: 1 lit, 2 off, 4..7 flashing (BYD SDK FAULT_INDICATOR_*).
+    // Only real faults: none of these is lit on a healthy car (all 2 on Artem's car, 10.11).
+    const val DEV_INSTRUMENT = 1007
+    val WARNING_LAMPS = linkedMapOf(
+        659554324 to "ABS",
+        659554336 to "гальмівна система",
+        659554348 to "ESP (стабілізація)",
+        659554312 to "подушки безпеки",
+        678428686 to "підсилювач керма",
+        678428704 to "підсилювач гальм",
+        678428692 to "система тиску шин",
+        721420296 to "несправність тягової батареї",
+        710934578 to "перегрів тягової батареї",
+        694157326 to "загальна несправність",
+        694157350 to "система смарт-ключа",
+    )
 
     // Seat occupancy, dev 1042: 1 = free, 2 = occupied (0 = not reported on this trim).
     // Song Plus reports every seat but the driver's (reads 0), so the driver is seen by the belt.

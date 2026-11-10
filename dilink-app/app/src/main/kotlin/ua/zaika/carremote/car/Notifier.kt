@@ -15,6 +15,11 @@ class Notifier(private val car: Autoservice, private val lowSocPct: () -> Int) {
     private var lowSocSpoken = false
     private var low12vSpoken = false
 
+    // Warning lamps: a lamp counts once it reads the same on two polls in a row, so the bulb check
+    // at power-on (every lamp lights for a moment) never sends a false alarm.
+    private val lampLit = HashSet<Int>()
+    private val lampSeen = HashMap<Int, Boolean>()
+
     // Charging session, for a rate-based (self-calibrating) time-to-full.
     private var chargeStartSoc: Float? = null
     private var chargeStartMs = 0L
@@ -76,7 +81,21 @@ class Notifier(private val car: Autoservice, private val lowSocPct: () -> Int) {
             if (v >= 12.2f) low12vSpoken = false
         }
 
+        msgs += lamps()
         return msgs
+    }
+
+    private fun lamps(): List<String> {
+        val out = mutableListOf<String>()
+        for ((fid, name) in Fids.WARNING_LAMPS) {
+            val v = car.getInt(Fids.DEV_INSTRUMENT, fid) ?: continue
+            val lit = when (v) { 1, 4, 5, 6, 7 -> true; 2 -> false; else -> continue }
+            val before = lampSeen.put(fid, lit)
+            if (before != lit) continue // wait for a second poll to confirm
+            if (lit && lampLit.add(fid)) out += "⚠️ На приладовій панелі горить лампа: $name"
+            if (!lit && lampLit.remove(fid)) out += "✅ Лампа «$name» згасла"
+        }
+        return out
     }
 
     private fun chargingProgress(soc: Float?, power: Float?): String? {

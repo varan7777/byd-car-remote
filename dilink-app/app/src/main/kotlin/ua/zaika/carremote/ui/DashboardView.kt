@@ -224,7 +224,7 @@ class DashboardView(context: Context) : View(context) {
         title.textSize = dp(34f); title.textAlign = Paint.Align.LEFT
         c.drawText("%", cx - dp(20f) + big.measureText(soc?.let { "%.0f".format(it) } ?: "—") / 2 + dp(6f), socY, title)
         sub.textSize = dp(18f); sub.textAlign = Paint.Align.CENTER
-        c.drawText("Заряд батареї", cx, socY + dp(38f), sub)
+        c.drawText("Заряд батареї" + (s?.rangeKm?.let { " · запас $it км" } ?: ""), cx, socY + dp(38f), sub)
 
         // Battery bar.
         val bw = (right - left) * 0.62f

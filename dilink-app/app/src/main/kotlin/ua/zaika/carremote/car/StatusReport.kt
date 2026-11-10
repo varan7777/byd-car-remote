@@ -19,6 +19,10 @@ object StatusReport {
         val inside = car.getInt(Fids.DEV_CLIMATE, Fids.INSIDE_TEMP)
         val outside = car.getInt(Fids.DEV_CLIMATE, Fids.OUTSIDE_TEMP)
         val pm25 = Pm25.inside(car)
+        val range = car.getInt(Fids.DEV_STATISTIC, Fids.ELEC_RANGE)?.takeIf { it in 1..999 }
+        val cellMax = car.getInt(Fids.DEV_STATISTIC, Fids.CELL_V_MAX)?.takeIf { it in 2000..4500 }
+        val cellMin = car.getInt(Fids.DEV_STATISTIC, Fids.CELL_V_MIN)?.takeIf { it in 2000..4500 }
+        val accept = car.getInt(Fids.DEV_STATISTIC, Fids.CHARGE_POWER_ALLOW)?.takeIf { it in 1..5000 }
         val locked = car.getInt(Fids.DEV_DOOR_LOCKS, Fids.LOCK_DRIVER)
         val gear = car.getInt(Fids.DEV_GEAR, Fids.GEAR)
         val doorsOpen = Fids.DOORS.count { car.getInt(Fids.DEV_BODYWORK, it) == 1 }
@@ -26,7 +30,11 @@ object StatusReport {
 
         return buildString {
             appendLine("🔋 Заряд: ${soc.fmt("%.1f%%")} · батарея ${soh.fmt("%d%%")}")
+            range?.let { appendLine("🛣 Запас ходу: $it км") }
             appendLine("🔌 Зарядка: ${charging(gun, bms, power)}")
+            accept?.let { appendLine("⚡ Батарея зараз прийме до ${"%.0f".format(it / 10f)} кВт") }
+            if (cellMax != null && cellMin != null && cellMax >= cellMin)
+                appendLine("🔬 Комірки: %.3f–%.3f В, розкид ${cellMax - cellMin} мВ".format(cellMin / 1000f, cellMax / 1000f))
             power?.let { appendLine("⚡ Потужність: ${"%.1f".format(it)} кВт") }
             appendLine("🪫 12V: ${v12.fmt("%.1f В")}")
             tempsLine(inside, outside)?.let { appendLine("🌡 $it") }
