@@ -18,7 +18,7 @@ object StatusReport {
         val acTemp = car.getInt(Fids.DEV_CLIMATE, Fids.AC_TEMP)
         val inside = car.getInt(Fids.DEV_CLIMATE, Fids.INSIDE_TEMP)
         val outside = car.getInt(Fids.DEV_CLIMATE, Fids.OUTSIDE_TEMP)
-        val pm25 = car.getInt(Fids.DEV_PM25, Fids.PM25_VALUE_IN)
+        val pm25 = Pm25.inside(car)
         val locked = car.getInt(Fids.DEV_DOOR_LOCKS, Fids.LOCK_DRIVER)
         val gear = car.getInt(Fids.DEV_GEAR, Fids.GEAR)
         val doorsOpen = Fids.DOORS.count { car.getInt(Fids.DEV_BODYWORK, it) == 1 }

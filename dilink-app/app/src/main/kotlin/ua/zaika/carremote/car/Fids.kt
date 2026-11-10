@@ -99,17 +99,28 @@ object Fids {
     const val TURN_DEV = DEV_LIGHTS
     const val TURN_MASK = 950009900 // 1=off, 2=left, 4=right, 6=hazard
 
-    // Air quality & purification. The PM2.5 sensor is its own device (BYDAUTO_DEVICE_PM2P5).
-    // Verified live on this Song Plus (2026-10-21): sensor answers, and writing
-    // QUICK_CLEAN_AIR_SET=1 flips the status 0→1 (a real clean cycle, unlike seat heat).
-    // Hidden from this car's factory UI but present in the system.
+    // Air quality & purification. The PM2.5 sensor is its own device (BYDAUTO_DEVICE_PM2P5) and an
+    // optional module: Artem's Song Plus has none (online state 2 = off, value always 0). A value
+    // counts only when its level is 1..6 (BYD SDK; 0 = invalid, 0xffff = no such feature).
     const val DEV_PM25 = 1008
-    const val PM25_VALUE_IN = 1331691536       // int: cabin PM2.5 (reads 0 when clean)
-    const val PM25_VALUE_OUT = 1331691548      // int: outside PM2.5
-    const val PM25_ONLINE = 1331691520         // int: sensor state (2 = online here)
-    const val QUICK_CLEAN_AIR = 1033895944     // dev 1000, int status: 1 = cleaning
-    const val QUICK_CLEAN_AIR_SET = 1330642960 // dev 1000, write 1 = start a clean cycle
+    const val PM25_VALUE_IN = 1331691536       // int: cabin PM2.5, µg/m³
+    const val PM25_VALUE_OUT = 1331691548      // int: outside PM2.5, µg/m³
+    const val PM25_LEVEL_IN = 1331691568       // int: 1 excellent .. 6 serious, 0 invalid
+    const val PM25_LEVEL_OUT = 1331691571
+    const val PM25_ONLINE = 1331691520         // int: 1 on, 2 off, 0 none
     // Negative-ion generator. Status unreadable on this car (likely no hardware) — the control
     // is best-effort: the write is accepted but its effect can't be confirmed here.
     const val PM25_ANION_STATE_SET = 1337982994
+}
+
+/** PM2.5 from the optional sensor, or null when the car has none or the reading is not valid. */
+object Pm25 {
+    fun inside(car: Autoservice): Int? = read(car, Fids.PM25_LEVEL_IN, Fids.PM25_VALUE_IN)
+    fun outside(car: Autoservice): Int? = read(car, Fids.PM25_LEVEL_OUT, Fids.PM25_VALUE_OUT)
+
+    private fun read(car: Autoservice, level: Int, value: Int): Int? {
+        if (car.getInt(Fids.DEV_PM25, Fids.PM25_ONLINE) != 1) return null
+        if (car.getInt(Fids.DEV_PM25, level) !in 1..6) return null
+        return car.getInt(Fids.DEV_PM25, value)?.takeIf { it in 0..3000 }
+    }
 }

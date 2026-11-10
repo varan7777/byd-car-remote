@@ -72,8 +72,8 @@ data class CarSnapshot(
                 hoodOpen = i(Fids.DEV_BODYWORK, Fids.HOOD)?.let { it == 1 },
                 lifetimeKwh = f(Fids.DEV_STATISTIC, Fids.LIFETIME_KWH),
                 sunroofPct = i(Fids.DEV_BODYWORK, Fids.SUNROOF),
-                pm25In = i(Fids.DEV_PM25, Fids.PM25_VALUE_IN),
-                pm25Out = i(Fids.DEV_PM25, Fids.PM25_VALUE_OUT),
+                pm25In = Pm25.inside(car),
+                pm25Out = Pm25.outside(car),
                 acOn = i(Fids.DEV_CLIMATE, Fids.AC_STATUS)?.let { it == 1 },
                 acTempC = i(Fids.DEV_CLIMATE, Fids.AC_TEMP),
             )
