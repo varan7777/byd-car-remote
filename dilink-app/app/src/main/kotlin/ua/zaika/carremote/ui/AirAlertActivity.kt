@@ -195,7 +195,7 @@ class AirAlertActivity : Activity() {
     private fun render(s: AirState?) {
         if (s == null) return
         val radius = prefs.getInt(CarRemoteService.KEY_RADIUS, CarRemoteService.DEFAULT_RADIUS).toDouble()
-        banner.text = s.bannerText(radius)
+        banner.text = quietSource(s.bannerText(radius))
         // Red: air-raid in our oblast or a threat within radius. Amber: threats but far. Green: clear.
         val c = when {
             s.regionLevel == "red" || s.within.isNotEmpty() || s.targetNear != null || (s.oblastAlert != null && s.regionLevel != "yellow") -> 0xFF8E2A24.toInt()
@@ -284,13 +284,24 @@ class AirAlertActivity : Activity() {
      */
     private fun tint(rgb: Int): Int = (if (Ui.isLight(this)) 0x1F000000 else 0x45000000) or rgb
 
+    /** The banner with its «Дані NEPTUN …» line small and dimmer: a footnote, not part of the alert. */
+    private fun quietSource(text: String): CharSequence {
+        val i = text.indexOf("Дані NEPTUN")
+        if (i < 0) return text
+        val end = text.indexOf('\n', i).let { if (it < 0) text.length else it }
+        return android.text.SpannableString(text).apply {
+            setSpan(android.text.style.RelativeSizeSpan(0.72f), i, end, 0)
+            setSpan(android.text.style.ForegroundColorSpan(0xB3FFFFFF.toInt()), i, end, 0)
+        }
+    }
+
     /** What each marker on the map means, drawn with the map's own glyphs, and what may sit around one. */
     private fun legend(): View {
         val kinds = listOf("uav" to "БпЛА (шахед)", "jet_uav" to "Реактивний БпЛА", "recon" to "Розвідник",
             "fpv" to "FPV-дрон", "missile" to "Крилата ракета", "ballistic" to "Балістика",
             "kab" to "КАБ", "mig31k" to "МіГ-31К")
-        val samples = listOf("airforce" to "З каналу Повітряних сил", "group" to "Група дронів",
-            "stale" to "Сірий — давні дані", "target" to "Відома лише ціль (курс сюди)")
+        val samples = listOf("airforce" to "Дані ПС", "group" to "Група",
+            "stale" to "Давні дані", "target" to "Лише ціль")
         val d = resources.displayMetrics.density
         val items = kinds.map { (k, n) -> Triple(k, n, false) } + samples.map { (k, n) -> Triple(k, n, true) }
         return LinearLayout(this).apply {
@@ -308,9 +319,9 @@ class AirAlertActivity : Activity() {
                                     if (sample) threatsOverlay.drawSample(c, kind, cx, cy, 10f * d, d)
                                     else threatsOverlay.drawGlyph(c, kind, cx, cy, 10f * d, d)
                                 }
-                            }, LinearLayout.LayoutParams(dp(44), dp(28)))
+                            }, LinearLayout.LayoutParams(dp(44), dp(25)))
                             addView(TextView(context).apply {
-                                text = name; setTextColor(Ui.text2c(context)); textSize = 14f; typeface = sf
+                                text = name; setTextColor(Ui.text2c(context)); textSize = 13f; typeface = sf; maxLines = 1
                             })
                         }, LinearLayout.LayoutParams(0, WRAP, 1f))
                     }
